@@ -39,7 +39,7 @@ if __name__ == "__main__":
     #### Define and parse (optional) arguments for the script ##
     parser = argparse.ArgumentParser(description='Helix flight script using CtrlAviary or VisionAviary and DSLPIDControl')
     parser.add_argument('--drone',              default="cf2x",     type=DroneModel,    help='Drone model (default: CF2X)', metavar='', choices=DroneModel)
-    parser.add_argument('--num_drones',         default=3,          type=int,           help='Number of drones (default: 3)', metavar='')
+    parser.add_argument('--num_drones',         default=1,          type=int,           help='Number of drones (default: 3)', metavar='')
     parser.add_argument('--physics',            default="pyb",      type=Physics,       help='Physics updates (default: PYB)', metavar='', choices=Physics)
     parser.add_argument('--vision',             default=False,      type=str2bool,      help='Whether to use VisionAviary (default: False)', metavar='')
     parser.add_argument('--gui',                default=True,       type=str2bool,      help='Whether to use PyBullet GUI (default: True)', metavar='')
@@ -50,26 +50,32 @@ if __name__ == "__main__":
     parser.add_argument('--obstacles',          default=True,       type=str2bool,      help='Whether to add obstacles to the environment (default: True)', metavar='')
     parser.add_argument('--simulation_freq_hz', default=240,        type=int,           help='Simulation frequency in Hz (default: 240)', metavar='')
     parser.add_argument('--control_freq_hz',    default=48,         type=int,           help='Control frequency in Hz (default: 48)', metavar='')
-    parser.add_argument('--duration_sec',       default=12,         type=int,           help='Duration of the simulation in seconds (default: 5)', metavar='')
+    parser.add_argument('--duration_sec',       default=20,         type=int,           help='Duration of the simulation in seconds (default: 5)', metavar='')
     ARGS = parser.parse_args()
 
     #### Initialize the simulation #############################
     H = .1
     H_STEP = .05
     R = .3
-    INIT_XYZS = np.array([[R*np.cos((i/6)*2*np.pi+np.pi/2), R*np.sin((i/6)*2*np.pi+np.pi/2)-R, H+i*H_STEP] for i in range(ARGS.num_drones)])
+    # INIT_XYZS = np.array([[R*np.cos((i/6)*2*np.pi+np.pi/2), R*np.sin((i/6)*2*np.pi+np.pi/2)-R, H+i*H_STEP] for i in range(ARGS.num_drones)])
+    INIT_XYZS = np.array([[0.5, 0.5, H] for i in range(ARGS.num_drones)])
     INIT_RPYS = np.array([[0, 0,  i * (np.pi/2)/ARGS.num_drones] for i in range(ARGS.num_drones)])
     AGGR_PHY_STEPS = int(ARGS.simulation_freq_hz/ARGS.control_freq_hz) if ARGS.aggregate else 1
 
     #### Initialize a circular trajectory ######################
-    PERIOD = 10
+    PERIOD = 5
     NUM_WP = ARGS.control_freq_hz*PERIOD
     TARGET_POS = np.zeros((NUM_WP,3))
     TARGET_RPY = np.zeros((NUM_WP,3))
-    for i in range(NUM_WP):
-        TARGET_POS[i, :] = R*np.cos((i/NUM_WP)*(2*np.pi)+np.pi/2)+INIT_XYZS[0, 0], R*np.sin((i/NUM_WP)*(2*np.pi)+np.pi/2)-R+INIT_XYZS[0, 1], 0
-        TARGET_RPY[i, :] = 0, 0, INIT_RPYS[0, 2] + 2*np.pi*i/NUM_WP
-    wp_counters = np.array([int((i*NUM_WP/6)%NUM_WP) for i in range(ARGS.num_drones)])
+    # TARGET_XYZ_VEL = np.zeros((NUM_WP,3))
+    # TARGET_RPY_RATE = np.zeros((NUM_WP,3))
+    wp_counters = np.array([int((i * NUM_WP / 6) % NUM_WP) for i in range(ARGS.num_drones)])
+    def init_traj(center_pos):
+        for i in range(NUM_WP):
+            TARGET_POS[i, :] = R*np.cos((i/NUM_WP)*(2*np.pi)+np.pi/2) + center_pos[0], R*np.sin((i/NUM_WP)*(2*np.pi)+np.pi/2) + center_pos[1], 0
+            TARGET_RPY[i, :] = 0, 0, INIT_RPYS[0, 2] + 2*np.pi*i/NUM_WP
+            # TARGET_RPY_RATE[i, :] = 0, 0, 2*np.pi/PERIOD
+        return TARGET_POS, TARGET_RPY
 
     #### Debug trajectory ######################################
     #### Uncomment alt. target_pos in .computeControlFromState()
@@ -139,8 +145,22 @@ if __name__ == "__main__":
     CTRL_EVERY_N_STEPS = int(np.floor(env.SIM_FREQ/ARGS.control_freq_hz))
     action = {str(i): np.array([0,0,0,0]) for i in range(ARGS.num_drones)}
     START = time.time()
+
+
+    ### Move target
+    move_freq = 0.1 * env.SIM_FREQ #seconds
+    object = np.array([0, 0, 0.0])
+    move_direction = np.array([-0.03, 0.02, 0.0])
+    TARGET_POS, TARGET_RPY = init_traj(object)
+
+    duck = p.loadURDF("duck_vhacd.urdf", object)
     for i in range(0, int(ARGS.duration_sec*env.SIM_FREQ), AGGR_PHY_STEPS):
 
+        if i % move_freq == 0:
+            object += move_direction
+            p.removeBody(duck)
+            duck = p.loadURDF("duck_vhacd.urdf", object)
+            TARGET_POS, TARGET_RPY = init_traj(object)
         #### Make it rain rubber ducks #############################
         # if i/env.SIM_FREQ>5 and i%10==0 and i/env.SIM_FREQ<10: p.loadURDF("duck_vhacd.urdf", [0+random.gauss(0, 0.3),-0.5+random.gauss(0, 0.3),3], p.getQuaternionFromEuler([random.randint(0,360),random.randint(0,360),random.randint(0,360)]), physicsClientId=PYB_CLIENT)
 
@@ -156,11 +176,12 @@ if __name__ == "__main__":
                                                                        state=obs[str(j)]["state"],
                                                                        target_pos=np.hstack([TARGET_POS[wp_counters[j], 0:2], INIT_XYZS[j, 2]]),
                                                                        # target_pos=INIT_XYZS[j, :] + TARGET_POS[wp_counters[j], :],
-                                                                       target_rpy=TARGET_RPY[wp_counters[j], :]
+                                                                       target_rpy=TARGET_RPY[wp_counters[j], :],
+                                                                       # target_rpy_rates=TARGET_RPY_RATE[wp_counters[j], :],
                                                                        )
 
             #### Go to the next way point and loop #####################
-            for j in range(ARGS.num_drones): 
+            for j in range(ARGS.num_drones):
                 wp_counters[j] = wp_counters[j] + 1 if wp_counters[j] < (NUM_WP-1) else 0
 
         #### Log the simulation ####################################
