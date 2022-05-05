@@ -65,8 +65,10 @@ if __name__ == "__main__":
     PERIOD = 10
     NUM_WP = ARGS.control_freq_hz*PERIOD
     TARGET_POS = np.zeros((NUM_WP,3))
+    TARGET_RPY = np.zeros((NUM_WP,3))
     for i in range(NUM_WP):
         TARGET_POS[i, :] = R*np.cos((i/NUM_WP)*(2*np.pi)+np.pi/2)+INIT_XYZS[0, 0], R*np.sin((i/NUM_WP)*(2*np.pi)+np.pi/2)-R+INIT_XYZS[0, 1], 0
+        TARGET_RPY[i, :] = 0, 0, INIT_RPYS[0, 2] + 2*np.pi*i/NUM_WP
     wp_counters = np.array([int((i*NUM_WP/6)%NUM_WP) for i in range(ARGS.num_drones)])
 
     #### Debug trajectory ######################################
@@ -154,7 +156,7 @@ if __name__ == "__main__":
                                                                        state=obs[str(j)]["state"],
                                                                        target_pos=np.hstack([TARGET_POS[wp_counters[j], 0:2], INIT_XYZS[j, 2]]),
                                                                        # target_pos=INIT_XYZS[j, :] + TARGET_POS[wp_counters[j], :],
-                                                                       target_rpy=INIT_RPYS[j, :]
+                                                                       target_rpy=TARGET_RPY[wp_counters[j], :]
                                                                        )
 
             #### Go to the next way point and loop #####################
