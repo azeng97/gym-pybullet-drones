@@ -20,8 +20,8 @@ import time
 import argparse
 import gym
 import numpy as np
-from stable_baselines3 import A2C
-from stable_baselines3.a2c import MlpPolicy
+from stable_baselines3 import DDPG
+from stable_baselines3.ppo import MlpPolicy
 from stable_baselines3.common.env_checker import check_env
 import ray
 from ray.tune import register_env
@@ -49,30 +49,12 @@ if __name__ == "__main__":
 
     #### Train the model #######################################
     if not ARGS.rllib:
-        model = A2C(MlpPolicy,
-                    env,
+        model = DDPG("MlpPolicy",
+                    env=env,
+                    batch_size=10000,
                     verbose=1
                     )
-        model.learn(total_timesteps=10000) # Typically not enough
-    else:
-        ray.shutdown()
-        ray.init(ignore_reinit_error=True)
-        register_env("takeoff-aviary-v0", lambda _: TakeoffAviary())
-        config = ppo.DEFAULT_CONFIG.copy()
-        config["num_workers"] = 2
-        config["framework"] = "torch"
-        config["env"] = "takeoff-aviary-v0"
-        agent = ppo.PPOTrainer(config)
-        for i in range(3): # Typically not enough
-            results = agent.train()
-            print("[INFO] {:d}: episode_reward max {:f} min {:f} mean {:f}".format(i,
-                                                                                   results["episode_reward_max"],
-                                                                                   results["episode_reward_min"],
-                                                                                   results["episode_reward_mean"]
-                                                                                   )
-                  )
-        policy = agent.get_policy()
-        ray.shutdown()
+        model.learn(total_timesteps=1000000) # Typically not enough
 
     #### Show (and record a video of) the model's performance ##
     env = TakeoffAviary(gui=True,
@@ -88,8 +70,6 @@ if __name__ == "__main__":
             action, _states = model.predict(obs,
                                             deterministic=True
                                             )
-        else:
-            action, _states, _dict = policy.compute_single_action(obs)
         obs, reward, done, info = env.step(action)
         logger.log(drone=0,
                    timestamp=i/env.SIM_FREQ,
