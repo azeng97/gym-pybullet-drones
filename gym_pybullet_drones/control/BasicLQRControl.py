@@ -5,7 +5,8 @@ import pybullet as p
 from gym_pybullet_drones.control.BaseControl import BaseControl
 from gym_pybullet_drones.envs.BaseAviary import DroneModel, BaseAviary
 from gym_pybullet_drones.utils.utils import nnlsRPM
-from gym_pybullet_drones.control.DroneDynamicsTools import shift_states, get_K_cart, get_K_ang
+from gym_pybullet_drones.control.DroneDynamicsTools import shift_states, get_K_cart_hardcoded, get_K_ang_hardcoded, get_calculated_Ks
+from scipy.linalg import block_diag
 
 
 class BasicLQRControl(BaseControl):
@@ -35,8 +36,29 @@ class BasicLQRControl(BaseControl):
         self.A = np.array([[1, 1, 1, 1], [0, 1, 0, -1], [-1, 0, 1, 0], [-1, 1, -1, 1]])
         self.INV_A = np.linalg.inv(self.A)
         self.B_COEFF = np.array([1 / self.KF, 1 / (self.KF * self.L), 1 / (self.KF * self.L), 1 / self.KM])
-        self.K_cartesian = get_K_cart()
-        self.K_angular = get_K_ang()
+
+        # Also get mass props
+        self.GRAV_ACCEL = g
+        self.MASS = self._getURDFParameter('m')
+        self.IX = self._getURDFParameter('ixx')
+        self.IY = self._getURDFParameter('iyy')
+        self.IZ = self._getURDFParameter('izz')
+
+
+        """
+        self.K_cartesian = get_K_cart_hardcoded()
+        self.K_angular = get_K_ang_hardcoded()
+        """
+        self.K_cartesian, self.K_angular = get_calculated_Ks(GRAV_ACCEL=self.GRAV_ACCEL,
+                                                             MASS=self.MASS,
+                                                             IX=self.IX,
+                                                             IY=self.IY,
+                                                             IZ=self.IZ,
+                                                             Q_cartesian=block_diag(10,1,10,1,10,1),
+                                                             R_cartesian=block_diag(1,1,1),
+                                                             Q_angular=block_diag(1,1,1,1,1,1),
+                                                             R_angular=block_diag(1,1,1))
+
         self.reset()
 
     def reset(self):
@@ -68,23 +90,27 @@ class BasicLQRControl(BaseControl):
 
         # Use the externally computed gains to apply two loops of LQR.
         # Loop 1: Cartesian. Computes desired roll and pitch angles, as well as thrust.
-        u_cartesian = self.K_cartesian @ pos_err
+        u_cartesian = -self.K_cartesian @ pos_err
 
-        # Unpack u_cartesian to provide:
+        # Unpack u_cartesian to provide thrust, roll_des, pitch_des. assume that Yaw des == 0
         pitch_des = u_cartesian[0]
         roll_des = u_cartesian[1]
         thrust = u_cartesian[2] + self.GRAVITY
+        thrust = np.clip(thrust, 0, self.MAX_THRUST)
 
-        computed_target_rpy = np.array([roll_des, pitch_des, 0, 0])
+        computed_target_rpy = np.array([roll_des, pitch_des, 0.0])
+
+        # Clip targets to maintain semi-linearity.
+        computed_target_rpy = np.clip(computed_target_rpy, -self.MAX_ROLL_PITCH, self.MAX_ROLL_PITCH)
 
         # Loop 2: Angular. Computes the desired torques.
         rpy_err = angular_states - shift_states(computed_target_rpy, target_rpy_rates)
-        target_torques = self.K_angular@rpy_err
+        target_torques = -self.K_angular@rpy_err
 
         rpm = nnlsRPM(thrust=thrust,
-                      x_torque=target_torques[0],
-                      y_torque=target_torques[1],
-                      z_torque=target_torques[2],
+                      x_torque=0,#target_torques[0],
+                      y_torque=0,#target_torques[1],
+                      z_torque=0,#target_torques[2],
                       counter=self.control_counter,
                       max_thrust=self.MAX_THRUST,
                       max_xy_torque=self.MAX_XY_TORQUE,

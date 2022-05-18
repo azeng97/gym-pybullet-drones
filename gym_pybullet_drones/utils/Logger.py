@@ -218,18 +218,21 @@ class Logger(object):
         row = 0
         for j in range(self.NUM_DRONES):
             axs[row, col].plot(t, self.states[j, 0, :], label="drone_"+str(j))
+            axs[row, col].plot(t, self.controls[j, 0, :], label="drone_" + str(j) + "_des", color="blue", ls="--")
         axs[row, col].set_xlabel('time')
         axs[row, col].set_ylabel('x (m)')
 
         row = 1
         for j in range(self.NUM_DRONES):
             axs[row, col].plot(t, self.states[j, 1, :], label="drone_"+str(j))
+            axs[row, col].plot(t, self.controls[j, 1, :], label="drone_" + str(j) + "_des", color="blue", ls="--")
         axs[row, col].set_xlabel('time')
         axs[row, col].set_ylabel('y (m)')
 
         row = 2
         for j in range(self.NUM_DRONES):
             axs[row, col].plot(t, self.states[j, 2, :], label="drone_"+str(j))
+            axs[row, col].plot(t, self.controls[j, 2, :], label="drone_" + str(j) + "_des", color="blue", ls="--")
         axs[row, col].set_xlabel('time')
         axs[row, col].set_ylabel('z (m)')
 
@@ -237,16 +240,19 @@ class Logger(object):
         row = 3
         for j in range(self.NUM_DRONES):
             axs[row, col].plot(t, self.states[j, 6, :], label="drone_"+str(j))
+            axs[row, col].plot(t, self.controls[j, 6, :], label="drone_" + str(j) + "_des", color="blue", ls="--")
         axs[row, col].set_xlabel('time')
         axs[row, col].set_ylabel('r (rad)')
         row = 4
         for j in range(self.NUM_DRONES):
             axs[row, col].plot(t, self.states[j, 7, :], label="drone_"+str(j))
+            axs[row, col].plot(t, self.controls[j, 7, :], label="drone_" + str(j) + "_des", color="blue", ls="--")
         axs[row, col].set_xlabel('time')
         axs[row, col].set_ylabel('p (rad)')
         row = 5
         for j in range(self.NUM_DRONES):
             axs[row, col].plot(t, self.states[j, 8, :], label="drone_"+str(j))
+            axs[row, col].plot(t, self.controls[j, 8, :], label="drone_" + str(j) + "_des", color="blue", ls="--")
         axs[row, col].set_xlabel('time')
         axs[row, col].set_ylabel('y (rad)')
 
