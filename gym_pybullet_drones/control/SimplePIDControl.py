@@ -172,7 +172,7 @@ class SimplePIDControl(BaseControl):
                        + np.multiply(self.I_COEFF_FOR, self.integral_pos_e) \
                        + np.multiply(self.D_COEFF_FOR, d_pos_e)
         target_rpy = np.zeros(3)
-        sign_z =  np.sign(target_force[2])
+        sign_z = np.sign(target_force[2])
         if sign_z == 0:
             sign_z = 1
         #### Target rotation #######################################
