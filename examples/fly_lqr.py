@@ -39,7 +39,7 @@ if __name__ == "__main__":
 
     #### Define and parse (optional) arguments for the script ##
     parser = argparse.ArgumentParser(description='Helix flight script using CtrlAviary or VisionAviary and DSLPIDControl')
-    parser.add_argument('--drone',              default="cf2x",     type=DroneModel,    help='Drone model (default: CF2X)', metavar='', choices=DroneModel)
+    parser.add_argument('--drone',              default="hb",     type=DroneModel,    help='Drone model (default: CF2X)', metavar='', choices=DroneModel)
     parser.add_argument('--num_drones',         default=1,          type=int,           help='Number of drones (default: 3)', metavar='')
     parser.add_argument('--physics',            default="pyb",      type=Physics,       help='Physics updates (default: PYB)', metavar='', choices=Physics)
     parser.add_argument('--vision',             default=False,      type=str2bool,      help='Whether to use VisionAviary (default: False)', metavar='')
@@ -51,7 +51,7 @@ if __name__ == "__main__":
     parser.add_argument('--obstacles',          default=True,       type=str2bool,      help='Whether to add obstacles to the environment (default: True)', metavar='')
     parser.add_argument('--simulation_freq_hz', default=240,        type=int,           help='Simulation frequency in Hz (default: 240)', metavar='')
     parser.add_argument('--control_freq_hz',    default=48,         type=int,           help='Control frequency in Hz (default: 48)', metavar='')
-    parser.add_argument('--duration_sec',       default=5,         type=int,           help='Duration of the simulation in seconds (default: 5)', metavar='')
+    parser.add_argument('--duration_sec',       default=10,          type=int,           help='Duration of the simulation in seconds (default: 5)', metavar='')
     ARGS = parser.parse_args()
 
     #### Initialize the simulation #############################
@@ -61,7 +61,7 @@ if __name__ == "__main__":
     #INIT_XYZS = np.array([[R*np.cos((i/6)*2*np.pi+np.pi/2), R*np.sin((i/6)*2*np.pi+np.pi/2)-R, H+i*H_STEP] for i in range(ARGS.num_drones)])
     #INIT_RPYS = np.array([[0, 0,  i * (np.pi/2)/ARGS.num_drones] for i in range(ARGS.num_drones)])
 
-    INIT_XYZS = np.array([[0,0,.1] for i in range(ARGS.num_drones)])
+    INIT_XYZS = np.array([[0,0,.5] for i in range(ARGS.num_drones)])
     INIT_RPYS = np.array([[0, 0, 0] for i in range(ARGS.num_drones)])
 
     AGGR_PHY_STEPS = int(ARGS.simulation_freq_hz/ARGS.control_freq_hz) if ARGS.aggregate else 1
@@ -71,8 +71,8 @@ if __name__ == "__main__":
     NUM_WP = ARGS.control_freq_hz*PERIOD
     TARGET_POS = np.zeros((NUM_WP,3))
     for i in range(NUM_WP):
-        TARGET_POS[i,:] = 0,0,.5
-        #TARGET_POS[i, :] = R*np.cos((i/NUM_WP)*(2*np.pi)+np.pi/2)+INIT_XYZS[0, 0], R*np.sin((i/NUM_WP)*(2*np.pi)+np.pi/2)-R+INIT_XYZS[0, 1], 0
+        TARGET_POS[i,:] = 0,0,5
+        #TARGET_POS[i, :] = R*np.cos((i/NUM_WP)*(2*np.pi)+np.pi/2)+INIT_XYZS[0, 0], R*np.sin((i/NUM_WP)*(2*np.pi)+np.pi/2)-R+INIT_XYZS[0, 1], .5
     wp_counters = np.array([int((i*NUM_WP/6)%NUM_WP) for i in range(ARGS.num_drones)])
 
     #### Debug trajectory ######################################
@@ -136,10 +136,21 @@ if __name__ == "__main__":
     #### Initialize the controllers ############################
     if ARGS.drone in [DroneModel.CF2X, DroneModel.CF2P]:
         #ctrl = [DSLPIDControl(drone_model=ARGS.drone) for i in range(ARGS.num_drones)]
-        ctrl = [BasicLQRControl(drone_model=ARGS.drone, g=9.81) for i in range(ARGS.num_drones)]
+        ctrl = [BasicLQRControl(drone_model=ARGS.drone,
+                                g=9.81,
+                                USE_DISCRETE_DYNAMICS=False,
+                                USE_INTEGRAL_STATES=False,
+                                DISABLE_TORQUES=False,
+                                control_timestep=1/ARGS.control_freq_hz) for i in range(ARGS.num_drones)]
+
     elif ARGS.drone in [DroneModel.HB]:
         #ctrl = [SimplePIDControl(drone_model=ARGS.drone) for i in range(ARGS.num_drones)]
-        ctrl = [BasicLQRControl(drone_model=ARGS.drone, g=9.81) for i in range(ARGS.num_drones)]
+        ctrl = [BasicLQRControl(drone_model=ARGS.drone,
+                                g=9.81,
+                                USE_DISCRETE_DYNAMICS=False,
+                                USE_INTEGRAL_STATES=False,
+                                DISABLE_TORQUES=False,
+                                control_timestep=1/ARGS.control_freq_hz) for i in range(ARGS.num_drones)]
 
     #### Run the simulation ####################################
     CTRL_EVERY_N_STEPS = int(np.floor(env.SIM_FREQ/ARGS.control_freq_hz))
@@ -165,7 +176,7 @@ if __name__ == "__main__":
                                                                        target_pos = TARGET_POS[wp_counters[j]],
                                                                        #target_pos=np.hstack([TARGET_POS[wp_counters[j], 0:2], INIT_XYZS[j, 2]]),
                                                                        # target_pos=INIT_XYZS[j, :] + TARGET_POS[wp_counters[j], :],
-                                                                       target_rpy=INIT_RPYS[j, :]
+                                                                       target_rpy=np.zeros((3,))
                                                                        )
 
             #### Go to the next way point and loop #####################
