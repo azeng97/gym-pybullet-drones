@@ -84,3 +84,4 @@ def get_calculated_Ks(MASS, GRAV_ACCEL, IX, IY, IZ, Q_cartesian, R_cartesian, Q_
     K_cartesian = control.lqr(A_c,B_c, Q_cartesian, R_cartesian)[0]
     K_angular = control.lqr(A_a, B_a, Q_angular, R_angular)[0]
     return K_cartesian, K_angular
+

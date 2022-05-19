@@ -5,8 +5,9 @@ import pybullet as p
 from gym_pybullet_drones.control.BaseControl import BaseControl
 from gym_pybullet_drones.envs.BaseAviary import DroneModel, BaseAviary
 from gym_pybullet_drones.utils.utils import nnlsRPM
-from gym_pybullet_drones.control.DroneDynamicsTools import shift_states, get_K_cart_hardcoded, get_K_ang_hardcoded, get_calculated_Ks
+from gym_pybullet_drones.control.DroneDynamicsTools import shift_states, get_K_cart_hardcoded, get_K_ang_hardcoded, get_calculated_Ks, drone_dynamics
 from scipy.linalg import block_diag
+import control
 
 
 class BasicLQRControl(BaseControl):
@@ -55,9 +56,24 @@ class BasicLQRControl(BaseControl):
                                                              IY=self.IY,
                                                              IZ=self.IZ,
                                                              Q_cartesian=block_diag(10,1,10,1,10,1),
-                                                             R_cartesian=block_diag(1,1,1),
-                                                             Q_angular=block_diag(1,1,1,1,1,1),
-                                                             R_angular=block_diag(1,1,1))
+                                                             R_cartesian=block_diag(10,10,10),
+                                                             Q_angular=block_diag(5,1,5,1,5,1),
+                                                             R_angular=block_diag(100,100,100))
+
+        """
+        Add checks for system stability.
+        """
+        A_c, B_c, A_a, B_a = drone_dynamics(MASS=self.MASS, GRAV_ACCEL=self.GRAV_ACCEL, IX=self.IX, IY=self.IY, IZ=self.IZ)
+
+        # C,D matrices are arbitrary. No not contribute to stability
+        sys_cartesian = control.ss(A_c-B_c@self.K_cartesian, B_c, np.ones((6,)), np.ones((3,)))
+        sys_angular = control.ss(A_a-B_a @ self.K_angular, B_a, np.ones((6,)), np.ones((3,)))
+
+        poles_cartesian = control.pole(sys_cartesian)
+        poles_angular = control.pole(sys_angular)
+
+        print("[LQRCONTROL] POLES_CARTESIAN=",poles_cartesian)
+        print("[LQRCONTROL] POLES_ANGULAR=",poles_angular)
 
         self.reset()
 
@@ -105,12 +121,12 @@ class BasicLQRControl(BaseControl):
 
         # Loop 2: Angular. Computes the desired torques.
         rpy_err = angular_states - shift_states(computed_target_rpy, target_rpy_rates)
-        target_torques = -self.K_angular@rpy_err
+        target_torques = -self.K_angular @ rpy_err
 
         rpm = nnlsRPM(thrust=thrust,
-                      x_torque=0,#target_torques[0],
-                      y_torque=0,#target_torques[1],
-                      z_torque=0,#target_torques[2],
+                      x_torque=target_torques[0],
+                      y_torque=target_torques[1],
+                      z_torque=target_torques[2],
                       counter=self.control_counter,
                       max_thrust=self.MAX_THRUST,
                       max_xy_torque=self.MAX_XY_TORQUE,
