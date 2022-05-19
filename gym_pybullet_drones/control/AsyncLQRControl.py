@@ -9,8 +9,12 @@ from gym_pybullet_drones.control.DroneDynamicsTools import shift_states, get_K_c
 from scipy.linalg import block_diag
 import control
 
-
-class BasicLQRControl(BaseControl):
+"""
+A modified version of "BasicLQRControl" that allows for
+asynchronous update rates of each loop. Assumes the inner loop (attitude)
+is updated at a higher frequency.
+"""
+class AsyncLQRControl(BaseControl):
 
     def __init__(self,
                  drone_model: DroneModel,
@@ -18,7 +22,8 @@ class BasicLQRControl(BaseControl):
                  control_timestep: float = 1/48,
                  USE_INTEGRAL_STATES: bool = False,
                  USE_DISCRETE_DYNAMICS: bool = False,
-                 DISABLE_TORQUES: bool = False
+                 DISABLE_TORQUES: bool = False,
+                 UPDATE_OUTER_LOOP_EVERY_N_CALLS: float = 1
                  ):
         """Common control classes __init__ method.
 
@@ -58,6 +63,7 @@ class BasicLQRControl(BaseControl):
         # Store controller parameters.
         self.USE_INTEGRAL_STATES = USE_INTEGRAL_STATES
         self.DISABLE_TORQUES=DISABLE_TORQUES
+        self.UPDATE_OUTER_LOOP_EVERY_N_CALLS=UPDATE_OUTER_LOOP_EVERY_N_CALLS
 
         """
         self.K_cartesian = get_K_cart_hardcoded()
@@ -121,6 +127,10 @@ class BasicLQRControl(BaseControl):
         super().reset()
         self.pos_integral_e = np.zeros((3,))
         self.ang_integral_e = np.zeros((3,))
+        self.counts_until_outer_update = 0 # Forces an update to thrust during next call to computeControl.
+
+        # History for position loop outputs while inner loop is called and outer is held.
+        self.last_computed_targ_rpy = np.zeros((3,))
 
     def computeControl(self,
                        control_timestep,
@@ -139,45 +149,59 @@ class BasicLQRControl(BaseControl):
         cartesian_states = shift_states(cur_pos, cur_vel)
         angular_states = shift_states(cur_rpy, cur_ang_vel)
 
-        # If using integral states, augment with estimate of error integrals
-        if self.USE_INTEGRAL_STATES:
-            self.pos_integral_e += control_timestep*(cur_pos-target_pos)
-            self.pos_integral_e = np.clip(self.pos_integral_e, -.5, .5)
-            pos_err = np.hstack((cartesian_states - shift_states(target_pos, target_vel), -self.pos_integral_e))
-        else:
-            self.pos_integral_e = None
-            pos_err = cartesian_states - shift_states(target_pos, target_vel)
+        """
+        Outer Loop - Cartesian control. Computes desired attitude.
+        Update N times slower than the inner attitude control loop, dictated by "UPDATE_OUTER_LOOP_EVERY_N_CALLS"
+        Thus, the control freq specified in the test script corresponds to inner loop rate, 
+        and the outer loop rate = UPDATE_OUTER_LOOP_EVERY_N_CALLS*inner_loop_rate
+        """
+        if self.counts_until_outer_update <= 0:
+            # If using integral states, augment with estimate of error integrals
+            if self.USE_INTEGRAL_STATES:
+                # Account for async timesteps with integration.
+                self.pos_integral_e += control_timestep*self.UPDATE_OUTER_LOOP_EVERY_N_CALLS*(cur_pos-target_pos)
+                self.pos_integral_e = np.clip(self.pos_integral_e, -.5, .5)
+                pos_err = np.hstack((cartesian_states - shift_states(target_pos, target_vel), -self.pos_integral_e))
+            else:
+                self.pos_integral_e = None
+                pos_err = cartesian_states - shift_states(target_pos, target_vel)
 
 
-        # Use the externally computed gains to apply two loops of LQR.
-        # Loop 1: Cartesian. Computes desired roll and pitch angles, as well as thrust.
-        u_cartesian = -self.K_cartesian @ pos_err
+            # Use the externally computed gains to apply two loops of LQR.
+            # Loop 1: Cartesian. Computes desired roll and pitch angles, as well as thrust.
+            u_cartesian = -self.K_cartesian @ pos_err
 
-        # Unpack u_cartesian to provide thrust, roll_des, pitch_des. assume that Yaw des == 0
-        pitch_des = u_cartesian[0]
-        roll_des = u_cartesian[1]
-        thrust = u_cartesian[2] + self.GRAVITY
-        thrust = np.clip(thrust, 0, self.MAX_THRUST)
+            # Unpack u_cartesian to provide thrust, roll_des, pitch_des. assume that Yaw des == 0
+            pitch_des = u_cartesian[0]
+            roll_des = u_cartesian[1]
+            thrust = u_cartesian[2] + self.GRAVITY
+            thrust = np.clip(thrust, 0, self.MAX_THRUST)
 
-        computed_target_rpy = np.array([roll_des, pitch_des, 0.0])
+            computed_target_rpy = np.array([roll_des, pitch_des, 0.0])
+            # Clip targets to maintain semi-linearity.
+            computed_target_rpy = np.clip(computed_target_rpy, -self.MAX_ROLL_PITCH, self.MAX_ROLL_PITCH)
+            self.inner_loop_counts = self.UPDATE_OUTER_LOOP_EVERY_N_CALLS
+            self.last_computed_targ_rpy = computed_target_rpy
 
-        # Clip targets to maintain semi-linearity.
-        computed_target_rpy = np.clip(computed_target_rpy, -self.MAX_ROLL_PITCH, self.MAX_ROLL_PITCH)
-
+        """
+        Inner Loop: 
+        """
         # Loop 2: Angular. Computes the desired torques.
         if self.USE_INTEGRAL_STATES:
-            self.ang_integral_e += control_timestep*(cur_rpy-computed_target_rpy)
+            self.ang_integral_e += control_timestep*(cur_rpy-self.last_computed_targ_rpy)
             self.ang_integral_e = np.clip(self.ang_integral_e, -.25, .25)
             rpy_err = np.hstack(
-                (angular_states - shift_states(computed_target_rpy, target_rpy_rates), self.ang_integral_e))
+                (angular_states - shift_states(self.last_computed_targ_rpy, target_rpy_rates), self.ang_integral_e))
         else:
             self.ang_integral_e = None
-            rpy_err = angular_states - shift_states(computed_target_rpy, target_rpy_rates)
+            rpy_err = angular_states - shift_states(self.last_computed_targ_rpy, target_rpy_rates)
 
         target_torques = -self.K_angular@rpy_err
 
         target_torques[0:2] = np.clip(target_torques[0:2], -0.9*self.MAX_XY_TORQUE, 0.9*self.MAX_XY_TORQUE)
         target_torques[2] = np.clip(target_torques[2], -0.9*self.MAX_Z_TORQUE, 0.9*self.MAX_Z_TORQUE)
+
+        self.counts_until_outer_update -= 1
 
         if self.DISABLE_TORQUES:
             target_torques=np.zeros((3,))
@@ -196,4 +220,4 @@ class BasicLQRControl(BaseControl):
                       gui=True
                       )
 
-        return rpm, computed_target_rpy
+        return rpm, self.last_computed_targ_rpy

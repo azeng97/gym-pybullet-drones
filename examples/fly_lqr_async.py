@@ -34,6 +34,7 @@ from gym_pybullet_drones.control.SimplePIDControl import SimplePIDControl
 from gym_pybullet_drones.control.BasicLQRControl import BasicLQRControl
 from gym_pybullet_drones.utils.Logger import Logger
 from gym_pybullet_drones.utils.utils import sync, str2bool
+from gym_pybullet_drones.control.AsyncLQRControl import AsyncLQRControl
 
 if __name__ == "__main__":
 
@@ -50,7 +51,7 @@ if __name__ == "__main__":
     parser.add_argument('--aggregate',          default=True,       type=str2bool,      help='Whether to aggregate physics steps (default: True)', metavar='')
     parser.add_argument('--obstacles',          default=True,       type=str2bool,      help='Whether to add obstacles to the environment (default: True)', metavar='')
     parser.add_argument('--simulation_freq_hz', default=240,        type=int,           help='Simulation frequency in Hz (default: 240)', metavar='')
-    parser.add_argument('--control_freq_hz',    default=240,         type=int,           help='Control frequency in Hz (default: 48)', metavar='')
+    parser.add_argument('--control_freq_hz',    default=48,         type=int,           help='Control frequency in Hz (default: 48)', metavar='')
     parser.add_argument('--duration_sec',       default=10,          type=int,           help='Duration of the simulation in seconds (default: 5)', metavar='')
     ARGS = parser.parse_args()
 
@@ -136,20 +137,22 @@ if __name__ == "__main__":
     #### Initialize the controllers ############################
     if ARGS.drone in [DroneModel.CF2X, DroneModel.CF2P]:
         #ctrl = [DSLPIDControl(drone_model=ARGS.drone) for i in range(ARGS.num_drones)]
-        ctrl = [BasicLQRControl(drone_model=ARGS.drone,
+        ctrl = [AsyncLQRControl(drone_model=ARGS.drone,
                                 g=9.81,
                                 USE_DISCRETE_DYNAMICS=False,
                                 USE_INTEGRAL_STATES=False,
                                 DISABLE_TORQUES=False,
+                                UPDATE_OUTER_LOOP_EVERY_N_CALLS=5,
                                 control_timestep=1/ARGS.control_freq_hz) for i in range(ARGS.num_drones)]
 
     elif ARGS.drone in [DroneModel.HB]:
         #ctrl = [SimplePIDControl(drone_model=ARGS.drone) for i in range(ARGS.num_drones)]
-        ctrl = [BasicLQRControl(drone_model=ARGS.drone,
+        ctrl = [AsyncLQRControl(drone_model=ARGS.drone,
                                 g=9.81,
                                 USE_DISCRETE_DYNAMICS=False,
                                 USE_INTEGRAL_STATES=False,
                                 DISABLE_TORQUES=False,
+                                UPDATE_OUTER_LOOP_EVERY_N_CALLS=5,
                                 control_timestep=1/ARGS.control_freq_hz) for i in range(ARGS.num_drones)]
 
     #### Run the simulation ####################################
