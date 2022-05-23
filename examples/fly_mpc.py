@@ -49,8 +49,8 @@ if __name__ == "__main__":
     parser.add_argument('--user_debug_gui',     default=False,      type=str2bool,      help='Whether to add debug lines and parameters to the GUI (default: False)', metavar='')
     parser.add_argument('--aggregate',          default=True,       type=str2bool,      help='Whether to aggregate physics steps (default: True)', metavar='')
     parser.add_argument('--obstacles',          default=True,       type=str2bool,      help='Whether to add obstacles to the environment (default: True)', metavar='')
-    parser.add_argument('--simulation_freq_hz', default=50,        type=int,           help='Simulation frequency in Hz (default: 240)', metavar='')
-    parser.add_argument('--control_freq_hz',    default=50,         type=int,           help='Control frequency in Hz (default: 48)', metavar='')
+    parser.add_argument('--simulation_freq_hz', default=10,        type=int,           help='Simulation frequency in Hz (default: 240)', metavar='')
+    parser.add_argument('--control_freq_hz',    default=10,         type=int,           help='Control frequency in Hz (default: 48)', metavar='')
     parser.add_argument('--duration_sec',       default=3,         type=int,           help='Duration of the simulation in seconds (default: 5)', metavar='')
     ARGS = parser.parse_args()
 
@@ -58,7 +58,7 @@ if __name__ == "__main__":
     H = .1
     H_STEP = .05
     R = .3
-    INIT_XYZS = np.array([[R*np.cos((i/6)*2*np.pi+np.pi/2), R*np.sin((i/6)*2*np.pi+np.pi/2)-R, 10] for i in range(ARGS.num_drones)])
+    INIT_XYZS = np.array([[R*np.cos((i/6)*2*np.pi+np.pi/2), R*np.sin((i/6)*2*np.pi+np.pi/2)-R, 5] for i in range(ARGS.num_drones)])
     INIT_RPYS = np.array([[0, 0,  i * (np.pi/2)/ARGS.num_drones] for i in range(ARGS.num_drones)])
     AGGR_PHY_STEPS = int(ARGS.simulation_freq_hz/ARGS.control_freq_hz) if ARGS.aggregate else 1
 

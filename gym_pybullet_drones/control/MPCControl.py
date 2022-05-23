@@ -8,6 +8,8 @@ from gym_pybullet_drones.utils.utils import nnlsRPM
 
 from casadi import *
 import do_mpc
+
+
   
 
 class MPCControl(BaseControl):
@@ -44,7 +46,7 @@ class MPCControl(BaseControl):
         self.M = self._getURDFParameter('m')        # Mass
         self.G = g   
 
-        self.make_model()                               # Gravitational constant
+                                      # Gravitational constant
 
         # self.P_COEFF_FOR = np.array([.1, .1, .2])
         # self.I_COEFF_FOR = np.array([.0001, .0001, .0001])
@@ -57,13 +59,14 @@ class MPCControl(BaseControl):
         self.THRUST2WEIGHT_RATIO = self._getURDFParameter('thrust2weight')
         self.MAX_RPM = np.sqrt((self.THRUST2WEIGHT_RATIO*self.GRAVITY) / (4*self.KF))
         self.MAX_THRUST = (4*self.KF*self.MAX_RPM**2)
-        print(self.MAX_RPM)
-        print(self.KF)
+        #print(self.MAX_RPM)
+        #print(self.KF)
         self.MAX_XY_TORQUE = (self.L*self.KF*self.MAX_RPM**2)
         self.MAX_Z_TORQUE = (2*self.KM*self.MAX_RPM**2)
         self.A = np.array([ [1, 1, 1, 1], [0, 1, 0, -1], [-1, 0, 1, 0], [-1, 1, -1, 1] ])
         self.INV_A = np.linalg.inv(self.A)
         self.B_COEFF = np.array([1/self.KF, 1/(self.KF*self.L), 1/(self.KF*self.L), 1/self.KM])
+        self.make_model() 
         self.reset()
 
     ################################################################################
@@ -111,6 +114,10 @@ class MPCControl(BaseControl):
       u3 = model.set_variable('_u', 'u3')
       u4 = model.set_variable('_u', 'u4')
 
+      zRef = model.set_variable('_tvp', var_name='zRef')
+      yaRef = model.set_variable('_tvp', var_name='yaRef')
+
+
       model.set_rhs('x', dx)
       model.set_rhs('y', dy)
       model.set_rhs('z', dz)
@@ -145,21 +152,48 @@ class MPCControl(BaseControl):
       }
       self.mpc.set_param(**setup_mpc)
 
-      mterm = 5*(z - 5)**2 + 1e-5*dz**2 + 1e-10*(x**2 + y**2 + dx**2 + dy**2) 
-      lterm = 5*(z - 5)**2 + 1e-5*dz**2 + 1e-10*(x**2 + y**2 + dx**2 + dy**2) 
+      mterm = 5*(z - zRef)**2 + 0.1*(ya - yaRef)**2 + 1e-5*dz**2 + 1e-10*(x**2 + y**2 + dx**2 + dy**2) 
+      lterm = mterm
 
       self.mpc.set_objective(mterm=mterm, lterm=lterm)
       self.mpc.set_rterm(u1=5e-1, u2=5e-1, u3=5e-1, u4=5e-1)
       #self.mpc.set_rterm(u1=5e-2)
 
       self.mpc.bounds['lower', '_u', 'u1'] = 0
-      self.mpc.bounds['upper', '_u', 'u1'] = 0.6
+      self.mpc.bounds['upper', '_u', 'u1'] = self.MAX_THRUST
 
-      self.mpc.bounds['lower', '_u', 'u3'] = -0.01
-      self.mpc.bounds['upper', '_u', 'u3'] = 0.01
+      self.mpc.bounds['lower', '_x', 'r'] = -np.pi
+      self.mpc.bounds['upper', '_x', 'r'] = np.pi
+
+      self.mpc.bounds['lower', '_x', 'p'] = -np.pi/2
+      self.mpc.bounds['upper', '_x', 'p'] = np.pi/2
+
+      self.mpc.bounds['lower', '_x', 'ya'] = -np.pi
+      self.mpc.bounds['upper', '_x', 'ya'] = np.pi
+
+      self.mpc.bounds['lower', '_u', 'u2'] = -self.MAX_XY_TORQUE
+      self.mpc.bounds['upper', '_u', 'u2'] = self.MAX_XY_TORQUE
+
+      self.mpc.bounds['lower', '_u', 'u3'] = -self.MAX_XY_TORQUE
+      self.mpc.bounds['upper', '_u', 'u3'] = self.MAX_XY_TORQUE
+
+      self.mpc.bounds['lower', '_u', 'u4'] = -self.MAX_Z_TORQUE
+      self.mpc.bounds['upper', '_u', 'u4'] = self.MAX_Z_TORQUE
+
+      tvp_template = self.mpc.get_tvp_template()
+      def tvp_fun(t_now):
+        # print("t_now")
+        # print(t_now)
+        for k in range(10+1):
+          tvp_template['_tvp', k, 'zRef'] = 5
+          tvp_template['_tvp', k, 'yaRef'] = np.pi/8
+
+        return tvp_template
+      self.mpc.set_tvp_fun(tvp_fun)
 
       self.mpc.setup()
     ################################################################################
+
 
     def computeControl(self,
                        control_timestep,
@@ -214,12 +248,13 @@ class MPCControl(BaseControl):
 
         cur_rpy = p.getEulerFromQuaternion(cur_quat)
         x0 = np.hstack((cur_pos, cur_rpy, cur_vel, cur_ang_vel))
+        
         #x0 = np.hstack((cur_pos[2], cur_vel[2]))
         self.mpc.x0 = x0
         self.mpc.set_initial_guess()
         u0 = self.mpc.make_step(x0)
-        print(x0)
-        print(u0)
+        # print(x0)
+        # print(u0)
         u_final = nnlsRPM(thrust=u0[0][0],
                        x_torque=u0[1][0],
                        y_torque=u0[2][0],
@@ -233,8 +268,8 @@ class MPCControl(BaseControl):
                        b_coeff=self.B_COEFF,
                        gui=True
                        )
-        print(u_final)
-        #sys.exit()
+        # print(u_final)
+        # sys.exit()
         return u_final
 
     ################################################################################
