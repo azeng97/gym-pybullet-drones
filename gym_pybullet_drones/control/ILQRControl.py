@@ -8,8 +8,6 @@ from gym_pybullet_drones.control.BaseControl import BaseControl
 from gym_pybullet_drones.envs.BaseAviary import DroneModel, BaseAviary
 from gym_pybullet_drones.utils.utils import nnlsRPM
 
-from casadi import *
-import do_mpc
 from typing import Callable, NamedTuple
 import matplotlib.pyplot as plt
 
