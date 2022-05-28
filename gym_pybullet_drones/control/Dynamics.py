@@ -6,8 +6,12 @@ Assumes zero motor inertia for all motors. (J=\vec{0})
 """
 import os
 import numpy as np
+import jax
+import jax.numpy as jnp
 import xml.etree.ElementTree as etxml
 from gym_pybullet_drones.envs.BaseAviary import DroneModel
+from typing import Callable, NamedTuple
+
 
 
 class Dynamics(object):

@@ -99,15 +99,15 @@ class MPCControl(BaseControl):
       x = model.set_variable('_x', 'x')
       y = model.set_variable('_x', 'y')
       z = model.set_variable('_x', 'z')
-      r = model.set_variable('_x', 'r')
+      vx = model.set_variable('_x', 'vx')
+      vy = model.set_variable('_x', 'vy')
+      vz = model.set_variable('_x', 'vz')
+      phi = model.set_variable('_x', 'phi')
+      theta = model.set_variable('_x', 'theta')
+      psi = model.set_variable('_x', 'psi')
       p = model.set_variable('_x', 'p')
-      ya = model.set_variable('_x', 'ya')
-      dx = model.set_variable('_x', 'dx')
-      dy = model.set_variable('_x', 'dy')
-      dz = model.set_variable('_x', 'dz')
-      dr = model.set_variable('_x', 'dr')
-      dp = model.set_variable('_x', 'dp')
-      dya = model.set_variable('_x', 'dya')
+      q = model.set_variable('_x', 'q')
+      r = model.set_variable('_x', 'r')
 
       u1 = model.set_variable('_u', 'u1')
       u2 = model.set_variable('_u', 'u2')
@@ -117,20 +117,63 @@ class MPCControl(BaseControl):
       zRef = model.set_variable('_tvp', var_name='zRef')
       yaRef = model.set_variable('_tvp', var_name='yaRef')
 
+      R_BI = np.zeros((3, 3))
+      R_BI[0, 0] = np.cos(theta)*np.cos(psi)
+      R_BI[0, 1] = np.cos(theta)*np.sin(psi)
+      R_BI[0, 2] = -np.sin(theta)
 
-      model.set_rhs('x', dx)
-      model.set_rhs('y', dy)
-      model.set_rhs('z', dz)
-      model.set_rhs('r', dr)
-      model.set_rhs('p', dp)
-      model.set_rhs('ya', dya)
-      model.set_rhs('dx', (np.cos(r) * np.sin(p) * np.cos(y) + np.sin(r) * np.sin(y)) * u1 / m)
-      model.set_rhs('dy', (np.cos(r) * np.sin(p) * np.sin(y) - np.sin(r) * np.sin(y)) * u1 / m)
-      model.set_rhs('dz', -g + np.cos(r) * np.cos(p) * u1 / m)
+      R_BI[1, 0] = np.sin(theta)*np.cos(psi)*np.sin(phi) - np.sin(psi)*np.cos(phi)
+      R_BI[1, 1] = np.sin(theta)*np.sin(psi)*np.sin(phi) + np.cos(psi)*np.cos(phi)
+      R_BI[1, 2] = np.cos(theta)*np.sin(phi)
+
+      R_BI[2, 0] = np.sin(theta)*np.cos(psi)*np.cos(phi) + np.sin(psi)*np.sin(phi)
+      R_BI[2, 1] = np.sin(theta)*np.sin(psi)*np.cos(phi) - np.cos(psi)*np.sin(phi)
+      R_BI[2, 2] = np.cos(theta)*np.cos(phi)
+
+      W = np.zeros((3,3))
+      W[0,0] = 1
+      W[0,1] = np.sin(phi)*np.tan(theta)
+      W[0,2] = np.cos(phi)*np.tan(theta)
+
+      W[1,0] = 0
+      W[1,1] = np.cos(phi)
+      W[1,2] = -np.sin(phi)
+
+      W[2,0] = 0
+      W[2,1] = np.sin(phi)*np.arccos(theta)
+      W[2,2] = np.cos(theta)*np.arccos(theta)
+
+      J = np.zeros((3,3))
+      J[0,0] = Ix 
+      J[1,1] = Iy 
+      J[2,2] = Iz
+
+      e3 = np.zeros((3,1))
+      e3[2,0] = 1
+
+      Vb = np.array([vx, vy, vz]).T
+      OMEGA = np.array([p, q, r]).T
+      TAU = np.array([u2, u3, u4]).T
+
+      dyn = np.vstack((np.dot(R_BI.T, Vb),
+                      -np.cross(OMEGA, Vb) + np.dot(R_BI, -g*e3) + u1 / m * e3,
+                      np.dot(W,OMEGA),
+                      np.dot(np.linalg.inv(J), -np.cross(OMEGA, np.dot(J, OMEGA)) + TAU))) 
+
+
+      model.set_rhs('x', dyn[0])
+      model.set_rhs('y', dyn[1])
+      model.set_rhs('z', dyn[2])
+      model.set_rhs('vx', dyn[3])
+      model.set_rhs('vy', dyn[4])
+      model.set_rhs('vz', dyn[5])
+      model.set_rhs('phi', dyn[6])
+      model.set_rhs('theta', dyn[7])
+      model.set_rhs('psi', dyn[8])
       #model.set_rhs('dz', -g + u1 / m)
-      model.set_rhs('dr', dp * dy * (Ix - Iz) / Ix + u2 / Ix)
-      model.set_rhs('dp', dr * dy * (Iz - Ix) / Iy + u3 / Iy)
-      model.set_rhs('dya', dr * dp * (Ix - Iy) / Iz + u4 / Iz)
+      model.set_rhs('p', dyn[9])
+      model.set_rhs('q', dyn[10])
+      model.set_rhs('r', dyn[11])
 
       model.setup()
 
@@ -152,7 +195,7 @@ class MPCControl(BaseControl):
       }
       self.mpc.set_param(**setup_mpc)
 
-      mterm = 5*(z - zRef)**2 + 0.1*(ya - yaRef)**2 + 1e-5*dz**2 + 1e-10*(x**2 + y**2 + dx**2 + dy**2) 
+      mterm = 5*(z - zRef)**2 + 0.1*(theta - yaRef)**2 + 1e-5*dz**2 + 1e-10*(x**2 + y**2 + vx**2 + vy**2) 
       lterm = mterm
 
       self.mpc.set_objective(mterm=mterm, lterm=lterm)
@@ -162,14 +205,14 @@ class MPCControl(BaseControl):
       self.mpc.bounds['lower', '_u', 'u1'] = 0
       self.mpc.bounds['upper', '_u', 'u1'] = self.MAX_THRUST
 
-      self.mpc.bounds['lower', '_x', 'r'] = -np.pi
-      self.mpc.bounds['upper', '_x', 'r'] = np.pi
+      self.mpc.bounds['lower', '_x', 'phi'] = -np.pi
+      self.mpc.bounds['upper', '_x', 'phi'] = np.pi
 
-      self.mpc.bounds['lower', '_x', 'p'] = -np.pi/2
-      self.mpc.bounds['upper', '_x', 'p'] = np.pi/2
+      self.mpc.bounds['lower', '_x', 'theta'] = -np.pi/2
+      self.mpc.bounds['upper', '_x', 'theta'] = np.pi/2
 
-      self.mpc.bounds['lower', '_x', 'ya'] = -np.pi
-      self.mpc.bounds['upper', '_x', 'ya'] = np.pi
+      self.mpc.bounds['lower', '_x', 'psi'] = -np.pi
+      self.mpc.bounds['upper', '_x', 'psi'] = np.pi
 
       self.mpc.bounds['lower', '_u', 'u2'] = -self.MAX_XY_TORQUE
       self.mpc.bounds['upper', '_u', 'u2'] = self.MAX_XY_TORQUE
@@ -186,7 +229,7 @@ class MPCControl(BaseControl):
         # print(t_now)
         for k in range(10+1):
           tvp_template['_tvp', k, 'zRef'] = 5
-          tvp_template['_tvp', k, 'yaRef'] = np.pi/8
+          tvp_template['_tvp', k, 'yaRef'] = 0#np.pi/8
 
         return tvp_template
       self.mpc.set_tvp_fun(tvp_fun)
