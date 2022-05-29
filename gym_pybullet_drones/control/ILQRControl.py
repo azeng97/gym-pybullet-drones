@@ -3,6 +3,7 @@ import numpy as np
 import pybullet as pybul
 import jax
 import jax.numpy as jnp
+jax.config.update('jax_platform_name', 'cpu')
 
 from gym_pybullet_drones.control.BaseControl import BaseControl
 from gym_pybullet_drones.envs.BaseAviary import DroneModel, BaseAviary
@@ -296,18 +297,28 @@ class DroneDynamics(NamedTuple):
 
 class VehicleExampleRunningCost(NamedTuple):
     soft_u1_limit: float
+    target_pos: np.ndarray
+    target_rpy: np.ndarray
+    target_vel: np.ndarray
+    target_rpy_rates: np.ndarray
 
     def __call__(self, state, control, step):
         x, y, z, vx, vy, vz, phi, theta, psi, p, q, r = state
         u1, u2, u3, u4 = control
 
-        lanekeeping = 1*(phi**2 + theta**2 + p**2 + q**2 + r**2)
+        target_x, target_y, target_z = self.target_pos
+        target_phi, target_th, target_psi = self.target_rpy
+        # target_psi_rate = self.target_rpy_rates[2]
+        target_psi_rate = 0
+
+        lanekeeping = 1*(phi**2 + theta**2 + p**2 + q**2 + (r - target_psi_rate)**2)
         #avoid_origin = 10000 * jnp.exp((-x**2 - y**2) / 10)
         #acceleration_cost = a**2 + a_lat**2
         u1_limit = 100 * jnp.maximum(u1**2 - self.soft_u1_limit**2, 0)
         u1_limit_neg = 10 * jnp.maximum(jnp.sign(u1)*u1**2, 0)
         theta_limit = 0#1000 * jnp.maximum(theta**2 - (jnp.pi/2)**2, 0)
-        target_pose = 1*((z - 0.75)**2) + 0.001*((x+0.5)**2 + (y+0.5)**2 + (psi - jnp.pi/4)**2) #+ 100*(theta - jnp.pi/8)**2
+        # target_pose = 1*((z - 0.75)**2) + 0.001*((x+0.5)**2 + (y+0.5)**2 + (psi - jnp.pi/4)**2) #+ 100*(theta - jnp.pi/8)**2
+        target_pose = 1*((z - target_z)**2) + 0.001*((x - target_x)**2 + (y - target_y)**2 + (target_psi - jnp.pi/4)**2) #+ 100*(theta - jnp.pi/8)**2
         #print(theta)
 
         return lanekeeping + u1_limit + u1_limit_neg + theta_limit + 5*(u1**2) + 50000*(u2**2 + u3**2 + u4**2) + target_pose
@@ -315,11 +326,18 @@ class VehicleExampleRunningCost(NamedTuple):
 
 
 class VehicleExampleTerminalCost(NamedTuple):
+    target_pos: np.ndarray
+    target_rpy: np.ndarray
+    target_vel: np.ndarray
+    target_rpy_rates: np.ndarray
     gain: float = 1.0
 
     def __call__(self, state):
+        target_x, target_y, target_z = self.target_pos
+        target_phi, target_th, target_psi = self.target_rpy
+
         x, y, z, vx, vy, vz, phi, theta, psi, p, q, r = state
-        return 100*((z - 0.75)**2 + (x+0.5)**2 +(y+0.5)**2 + vz**2 + vx**2 + vy**2 + phi**2 + theta**2 + p**2 + q**2 + r**2 + (psi - jnp.pi/4)**2)  
+        return 100*((z - target_z)**2 + (x - target_x)**2 +(y - target_y)**2 + vz**2 + vx**2 + vy**2 + phi**2 + theta**2 + p**2 + q**2 + r**2 + (target_psi - jnp.pi/4)**2)
 
 class ILQRControl(BaseControl):
     """Generic PID control class without yaw control.
@@ -332,7 +350,8 @@ class ILQRControl(BaseControl):
 
     def __init__(self,
                  drone_model: DroneModel,
-                 g: float=9.8
+                 control_freq: int,
+                 g: float=9.8,
                  ):
         """Common control classes __init__ method.
 
@@ -377,9 +396,12 @@ class ILQRControl(BaseControl):
         self.A = np.array([ [1, 1, 1, 1], [0, 1, 0, -1], [-1, 0, 1, 0], [-1, 1, -1, 1] ])
         self.INV_A = np.linalg.inv(self.A)
         self.B_COEFF = np.array([1/self.KF, 1/(self.KF*self.L), 1/(self.KF*self.L), 1/self.KM])
+        self.control_freq = control_freq  # hz
+        self.horizon = 1  # seconds to plan
         self.reset()
 
-        self.u_init = np.zeros((50, 4))
+
+        self.u_init = np.zeros((int(self.horizon*self.control_freq), 4))
         self.u_init[:,0] = self.M * self.G * self.u_init[:,0]
 
     ################################################################################
@@ -458,10 +480,18 @@ class ILQRControl(BaseControl):
         #x0 = np.hstack((cur_pos[2], cur_vel[2]))
         #print(x0)
         solution = iterative_linear_quadratic_regulator(
-            RK4Integrator(self.dynamics, 0.1),
+            RK4Integrator(self.dynamics, 1/self.control_freq),
             TotalCost(
-                VehicleExampleRunningCost(soft_u1_limit=self.MAX_THRUST),
-                VehicleExampleTerminalCost(gain=1.0),
+                VehicleExampleRunningCost(soft_u1_limit=self.MAX_THRUST,
+                                          target_pos=target_pos,
+                                          target_rpy=target_rpy,
+                                          target_vel=target_vel,
+                                          target_rpy_rates=target_rpy_rates),
+                VehicleExampleTerminalCost(gain=1.0,
+                                           target_pos=target_pos,
+                                           target_rpy=target_rpy,
+                                           target_vel=target_vel,
+                                           target_rpy_rates=target_rpy_rates),
             ),
             x0,
             self.u_init,
@@ -472,62 +502,62 @@ class ILQRControl(BaseControl):
 
         self.u_init = controls
 
-        print(RK4Integrator(self.dynamics, 0.1)(x0, np.array([u1[0], u2[0], u3[0], u4[0]]), 0))
+        print(RK4Integrator(self.dynamics, 1/self.control_freq)(x0, np.array([u1[0], u2[0], u3[0], u4[0]]), 0))
 
         u_final = nnlsRPM(thrust=u1[0],
-                       x_torque=u2[0],
-                       y_torque=u3[0],
-                       z_torque=u4[0],
-                       counter=self.control_counter,
-                       max_thrust=self.MAX_THRUST,
-                       max_xy_torque=self.MAX_XY_TORQUE,
-                       max_z_torque=self.MAX_Z_TORQUE,
-                       a=self.A,
-                       inv_a=self.INV_A,
-                       b_coeff=self.B_COEFF,
-                       gui=True
-                       )
+                          x_torque=u2[0],
+                          y_torque=u3[0],
+                          z_torque=u4[0],
+                          counter=self.control_counter,
+                          max_thrust=self.MAX_THRUST,
+                          max_xy_torque=self.MAX_XY_TORQUE,
+                          max_z_torque=self.MAX_Z_TORQUE,
+                          a=self.A,
+                          inv_a=self.INV_A,
+                          b_coeff=self.B_COEFF,
+                          gui=True
+                          )
+
         print("thrust and torques:")
         print(np.array([u1[0], u2[0], u3[0], u4[0]]))
         print("rpms:")
         print(u_final)
 
-        #if np.isnan(solution['optimal_cost']):
-
-        # plt.figure()
-        # plt.subplot(3,2,1)
-        # plt.plot(x, label="x")
-        # plt.plot(y, label='y')
-        # plt.plot(z,  label='z')
-        # plt.legend()
-        # plt.subplot(3,2,2)
-        # plt.plot(vx,  label='vx')
-        # plt.plot(vy,  label='vy')
-        # plt.plot(vz,  label='vz')
-        # plt.legend()
-        # plt.subplot(3,2,3)
-        # plt.plot(phi,  label='phi')
-        # plt.plot(theta,  label='theta')
-        # plt.plot(psi,  label='psi')
-        # plt.legend()
-        # plt.subplot(3,2,4)
-        # plt.plot(p,  label='p')
-        # plt.plot(q,  label='q')
-        # plt.plot(r,  label='r')
-        # plt.legend()
-        # plt.subplot(3,2,5)
-        # plt.plot(u1, label="u1")
-        # plt.legend()
-        # plt.subplot(3,2,6)
-        # plt.plot(u2, label="u2")
-        # plt.plot(u3, label="u3")
-        # plt.plot(u4, label="u4")
-        # plt.legend()
+        debug = True
+        if debug or np.isnan(solution['optimal_cost']):
+            plt.figure()
+            plt.subplot(3,2,1)
+            plt.plot(x, label="x")
+            plt.plot(y, label='y')
+            plt.plot(z,  label='z')
+            plt.legend()
+            plt.subplot(3,2,2)
+            plt.plot(vx,  label='vx')
+            plt.plot(vy,  label='vy')
+            plt.plot(vz,  label='vz')
+            plt.legend()
+            plt.subplot(3,2,3)
+            plt.plot(phi,  label='phi')
+            plt.plot(theta,  label='theta')
+            plt.plot(psi,  label='psi')
+            plt.legend()
+            plt.subplot(3,2,4)
+            plt.plot(p,  label='p')
+            plt.plot(q,  label='q')
+            plt.plot(r,  label='r')
+            plt.legend()
+            plt.subplot(3,2,5)
+            plt.plot(u1, label="u1")
+            plt.legend()
+            plt.subplot(3,2,6)
+            plt.plot(u2, label="u2")
+            plt.plot(u3, label="u3")
+            plt.plot(u4, label="u4")
+            plt.legend()
 
         print(solution['optimal_cost'])
         plt.show()
-        
-        
+
         # if self.control_counter > 2:
         #   sys.exit()
         return u_final

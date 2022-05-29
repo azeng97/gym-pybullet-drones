@@ -55,20 +55,27 @@ if __name__ == "__main__":
     ARGS = parser.parse_args()
 
     #### Initialize the simulation #############################
-    H = .1
+    H = .5
     H_STEP = .05
     R = .3
-    INIT_XYZS = np.array([[R*np.cos((i/6)*2*np.pi+np.pi/2), R*np.sin((i/6)*2*np.pi+np.pi/2)-R, 0.75] for i in range(ARGS.num_drones)])
+    INIT_XYZS = np.array([[0.0, 0.3, H] for i in range(ARGS.num_drones)])
     INIT_RPYS = np.array([[0, 0,  i * (np.pi/2)/ARGS.num_drones] for i in range(ARGS.num_drones)])
     AGGR_PHY_STEPS = int(ARGS.simulation_freq_hz/ARGS.control_freq_hz) if ARGS.aggregate else 1
 
     #### Initialize a circular trajectory ######################
-    PERIOD = 10
+    PERIOD = 5
     NUM_WP = ARGS.control_freq_hz*PERIOD
     TARGET_POS = np.zeros((NUM_WP,3))
-    for i in range(NUM_WP):
-        TARGET_POS[i, :] = R*np.cos((i/NUM_WP)*(2*np.pi)+np.pi/2)+INIT_XYZS[0, 0], R*np.sin((i/NUM_WP)*(2*np.pi)+np.pi/2)-R+INIT_XYZS[0, 1], 0
-    wp_counters = np.array([int((i*NUM_WP/6)%NUM_WP) for i in range(ARGS.num_drones)])
+    TARGET_RPY = np.zeros((NUM_WP,3))
+    # TARGET_XYZ_VEL = np.zeros((NUM_WP,3))
+    # TARGET_RPY_RATE = np.zeros((NUM_WP,3))
+    wp_counters = np.array([int((i * NUM_WP / 6) % NUM_WP) for i in range(ARGS.num_drones)])
+    def init_traj(center_pos):
+        for i in range(NUM_WP):
+            TARGET_POS[i, :] = R*np.cos((i/NUM_WP)*(2*np.pi)+np.pi/2) + center_pos[0], R*np.sin((i/NUM_WP)*(2*np.pi)+np.pi/2) + center_pos[1], 0
+            TARGET_RPY[i, :] = 0, 0, INIT_RPYS[0, 2] + 2*np.pi*i/NUM_WP
+            # TARGET_RPY_RATE[i, :] = 0, 0, 2*np.pi/PERIOD
+        return TARGET_POS, TARGET_RPY
 
     #### Debug trajectory ######################################
     #### Uncomment alt. target_pos in .computeControlFromState()
@@ -130,9 +137,16 @@ if __name__ == "__main__":
 
     #### Initialize the controllers ############################
     if ARGS.drone in [DroneModel.CF2X, DroneModel.CF2P]:
-        ctrl = [ILQRControl(drone_model=ARGS.drone) for i in range(ARGS.num_drones)]
+        ctrl = [ILQRControl(drone_model=ARGS.drone, control_freq=ARGS.control_freq_hz) for i in range(ARGS.num_drones)]
     elif ARGS.drone in [DroneModel.HB]:
         ctrl = [ILQRControl(drone_model=ARGS.drone) for i in range(ARGS.num_drones)]
+
+    ### Move target
+    move_freq = 0.5 * env.SIM_FREQ #seconds
+    object = np.array([0, 0, 0.0])
+    move_direction = np.array([-0.01, 0.02, 0.0])
+    TARGET_POS, TARGET_RPY = init_traj(object)
+    duck = p.loadURDF("duck_vhacd.urdf", object)
 
     #### Run the simulation ####################################
     CTRL_EVERY_N_STEPS = int(np.floor(env.SIM_FREQ/ARGS.control_freq_hz))
@@ -140,6 +154,11 @@ if __name__ == "__main__":
     START = time.time()
     for i in range(0, int(ARGS.duration_sec*env.SIM_FREQ), AGGR_PHY_STEPS):
 
+        if i % move_freq == 0:
+            object += move_direction
+            p.removeBody(duck)
+            duck = p.loadURDF("duck_vhacd.urdf", object)
+            TARGET_POS, TARGET_RPY = init_traj(object)
         #### Make it rain rubber ducks #############################
         # if i/env.SIM_FREQ>5 and i%10==0 and i/env.SIM_FREQ<10: p.loadURDF("duck_vhacd.urdf", [0+random.gauss(0, 0.3),-0.5+random.gauss(0, 0.3),3], p.getQuaternionFromEuler([random.randint(0,360),random.randint(0,360),random.randint(0,360)]), physicsClientId=PYB_CLIENT)
 
@@ -155,11 +174,10 @@ if __name__ == "__main__":
             for j in range(ARGS.num_drones):
                 # print(INIT_XYZS[j, 2])
                 action[str(j)] = ctrl[j].computeControlFromState(control_timestep=CTRL_EVERY_N_STEPS*env.TIMESTEP,
-                                                                       state=obs[str(j)]["state"],
-                                                                       target_pos=np.hstack([TARGET_POS[wp_counters[j], 0:2], INIT_XYZS[j, 2]]),
-                                                                       # target_pos=INIT_XYZS[j, :] + TARGET_POS[wp_counters[j], :],
-                                                                       target_rpy=INIT_RPYS[j, :]
-                                                                       )
+                                                                 state=obs[str(j)]["state"],
+                                                                 target_pos=np.hstack([TARGET_POS[wp_counters[j], 0:2], INIT_XYZS[j, 2]]),
+                                                                 target_rpy=INIT_RPYS[j, :],
+                                                                 target_rpy_rates=[0, 0, 2*np.pi/PERIOD])
 
             #### Go to the next way point and loop #####################
             for j in range(ARGS.num_drones): 
