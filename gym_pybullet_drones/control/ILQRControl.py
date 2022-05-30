@@ -305,24 +305,44 @@ class VehicleExampleRunningCost(NamedTuple):
     def __call__(self, state, control, step):
         x, y, z, vx, vy, vz, phi, theta, psi, p, q, r = state
         u1, u2, u3, u4 = control
-
         target_x, target_y, target_z = self.target_pos
         target_phi, target_th, target_psi = self.target_rpy
-        # target_psi_rate = self.target_rpy_rates[2]
-        target_psi_rate = 0
+        target_p, target_q, target_r = self.target_rpy_rates
 
-        lanekeeping = 1*(phi**2 + theta**2 + p**2 + q**2 + (r - target_psi_rate)**2)
-        #avoid_origin = 10000 * jnp.exp((-x**2 - y**2) / 10)
-        #acceleration_cost = a**2 + a_lat**2
-        u1_limit = 100 * jnp.maximum(u1**2 - self.soft_u1_limit**2, 0)
-        u1_limit_neg = 10 * jnp.maximum(jnp.sign(u1)*u1**2, 0)
-        theta_limit = 0#1000 * jnp.maximum(theta**2 - (jnp.pi/2)**2, 0)
-        # target_pose = 1*((z - 0.75)**2) + 0.001*((x+0.5)**2 + (y+0.5)**2 + (psi - jnp.pi/4)**2) #+ 100*(theta - jnp.pi/8)**2
-        target_pose = 1*((z - target_z)**2) + 0.001*((x - target_x)**2 + (y - target_y)**2 + (target_psi - jnp.pi/4)**2) #+ 100*(theta - jnp.pi/8)**2
-        #print(theta)
 
-        return lanekeeping + u1_limit + u1_limit_neg + theta_limit + 5*(u1**2) + 50000*(u2**2 + u3**2 + u4**2) + target_pose
-        #return 0.0
+        if True:
+            target_x, target_y, target_z = self.target_pos
+            target_phi, target_th, target_psi = self.target_rpy
+            # target_psi_rate = self.target_rpy_rates[2]
+            target_psi_rate = 0
+
+            lanekeeping = 1*(phi**2 + theta**2 + p**2 + q**2 + (r - target_psi_rate)**2)
+            #avoid_origin = 10000 * jnp.exp((-x**2 - y**2) / 10)
+            #acceleration_cost = a**2 + a_lat**2
+            u1_limit = 100 * jnp.maximum(u1**2 - self.soft_u1_limit**2, 0)
+            u1_limit_neg = 10 * jnp.maximum(jnp.sign(u1)*u1**2, 0)
+            theta_limit = 0#1000 * jnp.maximum(theta**2 - (jnp.pi/2)**2, 0)
+            # target_pose = 1*((z - 0.75)**2) + 0.001*((x+0.5)**2 + (y+0.5)**2 + (psi - jnp.pi/4)**2) #+ 100*(theta - jnp.pi/8)**2
+            target_pose = 1*((z - target_z)**2) + 0.001*(10*(x - target_x)**2 + 10*(y - target_y)**2 + (target_psi - jnp.pi/4)**2) #+ 100*(theta - jnp.pi/8)**2
+            #print(theta)
+
+            return lanekeeping + u1_limit + u1_limit_neg + theta_limit + 5*(u1**2) + 50000*(u2**2 + u3**2 + u4**2) + target_pose
+            #return 0.0
+        else:
+            # Krt tests
+            psi_e = jnp.minimum(psi-target_psi-2*jnp.pi, psi-target_psi+2*jnp.pi)
+
+            pos_state_cost = 1*((x-target_x)**2 + (y-target_y)**2 + 5*(z-target_z)**2)                                   # Penalize distance from target pos
+            vel_state_cost = 0
+            ang_state_cost = (phi-target_phi)**2 + 10*(theta-target_th)**2 + 10*(psi_e)**2
+
+            # Penalize any angular rates to ensure smooth trajectory
+            ang_rate_state_cost = 10*(p-target_p)**2 + 10*(q-target_q)**2 + (r-target_r)**2
+
+            # Penalize torques more than thrust
+            control_cost= 5*u1**2 + 5000*(u2**2 + u3**2 + u4**2)
+
+            return control_cost + pos_state_cost + ang_state_cost + p**2 + r**2 + q**2
 
 
 class VehicleExampleTerminalCost(NamedTuple):
@@ -337,7 +357,13 @@ class VehicleExampleTerminalCost(NamedTuple):
         target_phi, target_th, target_psi = self.target_rpy
 
         x, y, z, vx, vy, vz, phi, theta, psi, p, q, r = state
-        return 100*((z - target_z)**2 + (x - target_x)**2 +(y - target_y)**2 + vz**2 + vx**2 + vy**2 + phi**2 + theta**2 + p**2 + q**2 + r**2 + (target_psi - jnp.pi/4)**2)
+
+        if True:
+            # Original (100x gain)
+            return 100*((z - target_z)**2 + (x - target_x)**2 +(y - target_y)**2 + vz**2 + vx**2 + vy**2 + phi**2 + theta**2 + p**2 + q**2 + r**2 + (target_psi - jnp.pi/4)**2)
+        else:
+            # krt
+            return 1e4*((x-target_x)**2 + (y-target_y)**2 + (z-target_z)**2)
 
 class ILQRControl(BaseControl):
     """Generic PID control class without yaw control.
@@ -397,7 +423,7 @@ class ILQRControl(BaseControl):
         self.INV_A = np.linalg.inv(self.A)
         self.B_COEFF = np.array([1/self.KF, 1/(self.KF*self.L), 1/(self.KF*self.L), 1/self.KM])
         self.control_freq = control_freq  # hz
-        self.horizon = 1  # seconds to plan
+        self.horizon = 1  # seconds to plan (orig = 1)
         self.reset()
 
 
@@ -523,8 +549,8 @@ class ILQRControl(BaseControl):
         print("rpms:")
         print(u_final)
 
-        debug = True
-        if debug or np.isnan(solution['optimal_cost']):
+        debug = False
+        if debug:# or np.isnan(solution['optimal_cost']):
             plt.figure()
             plt.subplot(3,2,1)
             plt.plot(x, label="x")
@@ -560,6 +586,6 @@ class ILQRControl(BaseControl):
 
         # if self.control_counter > 2:
         #   sys.exit()
-        return u_final
+        return u_final, None, None    # dummy vars to match outputs of PID
 
     ################################################################################

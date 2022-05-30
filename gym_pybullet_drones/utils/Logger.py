@@ -21,6 +21,7 @@ class Logger(object):
                  logging_freq_hz: int,
                  num_drones: int=1,
                  duration_sec: int=0
+
                  ):
         """Logger class __init__ method.
 
@@ -140,18 +141,18 @@ class Logger(object):
         t = np.arange(0, self.timestamps.shape[1]/self.LOGGING_FREQ_HZ, 1/self.LOGGING_FREQ_HZ)
         for i in range(self.NUM_DRONES):
             with open(csv_dir+"/x"+str(i)+".csv", 'wb') as out_file:
-                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 0, :]])), delimiter=",")
+                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 0, :], self.controls[i,0,:]])), delimiter=",")
             with open(csv_dir+"/y"+str(i)+".csv", 'wb') as out_file:
-                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 1, :]])), delimiter=",")
+                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 1, :], self.controls[i,1,:]])), delimiter=",")
             with open(csv_dir+"/z"+str(i)+".csv", 'wb') as out_file:
-                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 2, :]])), delimiter=",")
+                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 2, :], self.controls[i,2,:]])), delimiter=",")
             ####
             with open(csv_dir+"/r"+str(i)+".csv", 'wb') as out_file:
-                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 6, :]])), delimiter=",")
+                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 6, :], self.controls[i,6,:]])), delimiter=",")
             with open(csv_dir+"/p"+str(i)+".csv", 'wb') as out_file:
-                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 7, :]])), delimiter=",")
+                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 7, :], self.controls[i,7,:]])), delimiter=",")
             with open(csv_dir+"/ya"+str(i)+".csv", 'wb') as out_file:
-                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 8, :]])), delimiter=",")
+                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 8, :], self.controls[i,8,:]])), delimiter=",")
             ####
             with open(csv_dir+"/rr"+str(i)+".csv", 'wb') as out_file:
                 rdot = np.hstack([0, (self.states[i, 6, 1:] - self.states[i, 6, 0:-1]) * self.LOGGING_FREQ_HZ ])
@@ -164,18 +165,18 @@ class Logger(object):
                 np.savetxt(out_file, np.transpose(np.vstack([t, ydot])), delimiter=",")
             ###
             with open(csv_dir+"/vx"+str(i)+".csv", 'wb') as out_file:
-                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 3, :]])), delimiter=",")
+                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 3, :], self.controls[i, 3, :]])), delimiter=",")
             with open(csv_dir+"/vy"+str(i)+".csv", 'wb') as out_file:
-                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 4, :]])), delimiter=",")
+                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 4, :], self.controls[i,4,:]])), delimiter=",")
             with open(csv_dir+"/vz"+str(i)+".csv", 'wb') as out_file:
-                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 5, :]])), delimiter=",")
+                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 5, :], self.controls[i,5,:]])), delimiter=",")
             ####
             with open(csv_dir+"/wx"+str(i)+".csv", 'wb') as out_file:
-                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 9, :]])), delimiter=",")
+                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 9, :], self.controls[i,9,:]])), delimiter=",")
             with open(csv_dir+"/wy"+str(i)+".csv", 'wb') as out_file:
-                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 10, :]])), delimiter=",")
+                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 10, :], self.controls[i,10,:]])), delimiter=",")
             with open(csv_dir+"/wz"+str(i)+".csv", 'wb') as out_file:
-                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 11, :]])), delimiter=",")
+                np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 11, :], self.controls[i,11,:]])), delimiter=",")
             ####
             with open(csv_dir+"/rpm0-"+str(i)+".csv", 'wb') as out_file:
                 np.savetxt(out_file, np.transpose(np.vstack([t, self.states[i, 12, :]])), delimiter=",")
@@ -218,18 +219,21 @@ class Logger(object):
         row = 0
         for j in range(self.NUM_DRONES):
             axs[row, col].plot(t, self.states[j, 0, :], label="drone_"+str(j))
+            axs[row, col].plot(t, self.controls[j, 0, :], label="drone_" + str(j)+"_des", c='b', ls='--')
         axs[row, col].set_xlabel('time')
         axs[row, col].set_ylabel('x (m)')
 
         row = 1
         for j in range(self.NUM_DRONES):
             axs[row, col].plot(t, self.states[j, 1, :], label="drone_"+str(j))
+            axs[row, col].plot(t, self.controls[j, 1, :], label="drone_" + str(j) + "_des", c='b', ls='--')
         axs[row, col].set_xlabel('time')
         axs[row, col].set_ylabel('y (m)')
 
         row = 2
         for j in range(self.NUM_DRONES):
             axs[row, col].plot(t, self.states[j, 2, :], label="drone_"+str(j))
+            axs[row, col].plot(t, self.controls[j, 2, :], label="drone_" + str(j) + "_des", c='b', ls='--')
         axs[row, col].set_xlabel('time')
         axs[row, col].set_ylabel('z (m)')
 
@@ -237,16 +241,19 @@ class Logger(object):
         row = 3
         for j in range(self.NUM_DRONES):
             axs[row, col].plot(t, self.states[j, 6, :], label="drone_"+str(j))
+            axs[row, col].plot(t, self.controls[j, 6, :], label="drone_" + str(j) + "_des", c='b', ls='--')
         axs[row, col].set_xlabel('time')
         axs[row, col].set_ylabel('r (rad)')
         row = 4
         for j in range(self.NUM_DRONES):
             axs[row, col].plot(t, self.states[j, 7, :], label="drone_"+str(j))
+            axs[row, col].plot(t, self.controls[j, 7, :], label="drone_" + str(j) + "_des", c='b', ls='--')
         axs[row, col].set_xlabel('time')
         axs[row, col].set_ylabel('p (rad)')
         row = 5
         for j in range(self.NUM_DRONES):
             axs[row, col].plot(t, self.states[j, 8, :], label="drone_"+str(j))
+            axs[row, col].plot(t, self.controls[j, 8, :], label="drone_" + str(j) + "_des", c='b', ls='--')
         axs[row, col].set_xlabel('time')
         axs[row, col].set_ylabel('y (rad)')
 
@@ -264,6 +271,7 @@ class Logger(object):
         row = 8
         for j in range(self.NUM_DRONES):
             axs[row, col].plot(t, self.states[j, 11, :], label="drone_"+str(j))
+            axs[row, col].plot(t, self.controls[j, 11, :], label="drone_" + str(j) + "_des", c='b', ls='--')
         axs[row, col].set_xlabel('time')
         axs[row, col].set_ylabel('wz')
 
