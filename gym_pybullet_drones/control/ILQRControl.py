@@ -11,7 +11,7 @@ from gym_pybullet_drones.utils.utils import nnlsRPM
 
 from typing import Callable, NamedTuple
 import matplotlib.pyplot as plt
-
+import os
 class LinearDynamics(NamedTuple):
     f_x: jnp.array  # A
     f_u: jnp.array  # B
@@ -272,7 +272,7 @@ class DroneDynamics(NamedTuple):
 
         W = jnp.array([[1, jnp.sin(phi)*jnp.tan(theta), jnp.cos(phi)*jnp.tan(theta)],
                         [0, jnp.cos(phi), -jnp.sin(phi)],
-                        [0, jnp.sin(phi)*jnp.arccos(theta), jnp.cos(theta)*jnp.arccos(theta)]])
+                        [0, jnp.sin(phi)*(1/jnp.cos(theta)), jnp.cos(theta)*(1/jnp.cos(theta))]])
 
         # J = jnp.zeros((3,3))
         # J[0,0] = Ix 
@@ -310,6 +310,10 @@ class VehicleExampleRunningCost(NamedTuple):
         target_phi, target_th, target_psi = self.target_rpy
         # target_psi_rate = self.target_rpy_rates[2]
         target_psi_rate = 0
+        # target_psi = 0
+
+        psi_e = (psi-target_psi)**2
+        # psi_e = jnp.minimum((psi - target_psi)**2, (2*jnp.pi - psi + target_psi)**2)
 
         lanekeeping = 1*(phi**2 + theta**2 + p**2 + q**2 + (r - target_psi_rate)**2)
         #avoid_origin = 10000 * jnp.exp((-x**2 - y**2) / 10)
@@ -318,7 +322,7 @@ class VehicleExampleRunningCost(NamedTuple):
         u1_limit_neg = 10 * jnp.maximum(jnp.sign(u1)*u1**2, 0)
         theta_limit = 0#1000 * jnp.maximum(theta**2 - (jnp.pi/2)**2, 0)
         # target_pose = 1*((z - 0.75)**2) + 0.001*((x+0.5)**2 + (y+0.5)**2 + (psi - jnp.pi/4)**2) #+ 100*(theta - jnp.pi/8)**2
-        target_pose = 1*((z - target_z)**2) + 0.001*((x - target_x)**2 + (y - target_y)**2 + (target_psi - jnp.pi/4)**2) #+ 100*(theta - jnp.pi/8)**2
+        target_pose = 1*((z - target_z)**2) + 0.001*((x - target_x)**2 + (y - target_y)**2 + psi_e) #+ 100*(theta - jnp.pi/8)**2
         #print(theta)
 
         return lanekeeping + u1_limit + u1_limit_neg + theta_limit + 5*(u1**2) + 50000*(u2**2 + u3**2 + u4**2) + target_pose
@@ -335,9 +339,12 @@ class VehicleExampleTerminalCost(NamedTuple):
     def __call__(self, state):
         target_x, target_y, target_z = self.target_pos
         target_phi, target_th, target_psi = self.target_rpy
-
         x, y, z, vx, vy, vz, phi, theta, psi, p, q, r = state
-        return 100*((z - target_z)**2 + (x - target_x)**2 +(y - target_y)**2 + vz**2 + vx**2 + vy**2 + phi**2 + theta**2 + p**2 + q**2 + r**2 + (target_psi - jnp.pi/4)**2)
+        # target_psi = 0
+        psi_e = (psi-target_psi)**2
+        # psi_e = jnp.minimum((psi - target_psi)**2, (2*jnp.pi - psi + target_psi)**2)
+
+        return 100*((z - target_z)**2 + (x - target_x)**2 +(y - target_y)**2 + vz**2 + phi**2 + theta**2 + p**2 + q**2 + r**2 + psi_e)
 
 class ILQRControl(BaseControl):
     """Generic PID control class without yaw control.
@@ -471,14 +478,20 @@ class ILQRControl(BaseControl):
 
         """
         self.control_counter += 1
-        if target_rpy[2]!=0:
-            print("\n[WARNING] ctrl it", self.control_counter, "in SimplePIDControl.computeControl(), desired yaw={:.0f}deg but locked to 0. for DroneModel.HB".format(target_rpy[2]*(180/np.pi)))
 
         cur_rpy = pybul.getEulerFromQuaternion(cur_quat)
         x0 = np.hstack((cur_pos, cur_vel, cur_rpy, cur_ang_vel))
         
         #x0 = np.hstack((cur_pos[2], cur_vel[2]))
         #print(x0)
+
+        if target_rpy[2] - cur_rpy[2] > np.pi:
+            target_rpy[2] -= 2*np.pi
+        elif target_rpy[2] - cur_rpy[2] < -np.pi:
+            target_rpy[2] -= 2*np.pi
+
+
+        print("After: {}".format(target_rpy[2]))
         solution = iterative_linear_quadratic_regulator(
             RK4Integrator(self.dynamics, 1/self.control_freq),
             TotalCost(
@@ -523,9 +536,9 @@ class ILQRControl(BaseControl):
         print("rpms:")
         print(u_final)
 
-        debug = True
-        if debug or np.isnan(solution['optimal_cost']):
-            plt.figure()
+        debug = False
+        if debug or np.isnan(solution['optimal_cost']) or solution['optimal_cost'] > 40:
+            fig = plt.figure()
             plt.subplot(3,2,1)
             plt.plot(x, label="x")
             plt.plot(y, label='y')
@@ -554,9 +567,12 @@ class ILQRControl(BaseControl):
             plt.plot(u3, label="u3")
             plt.plot(u4, label="u4")
             plt.legend()
+            plt.savefig("{}/mpc_1/out_{}.png".format(os.path.dirname(os.path.realpath(__file__)), self.control_counter))
+            plt.close(fig)
 
         print(solution['optimal_cost'])
-        plt.show()
+        # plt.show()
+
 
         # if self.control_counter > 2:
         #   sys.exit()

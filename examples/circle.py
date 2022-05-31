@@ -172,6 +172,7 @@ if __name__ == "__main__":
 
             #### Compute control for the current way point #############
             for j in range(ARGS.num_drones):
+                print(TARGET_RPY[wp_counters[j], :])
                 action[str(j)], _, _ = ctrl[j].computeControlFromState(control_timestep=CTRL_EVERY_N_STEPS*env.TIMESTEP,
                                                                        state=obs[str(j)]["state"],
                                                                        target_pos=np.hstack([TARGET_POS[wp_counters[j], 0:2], INIT_XYZS[j, 2]]),

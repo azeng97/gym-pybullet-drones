@@ -35,6 +35,22 @@ from gym_pybullet_drones.control.ILQRControl import ILQRControl
 from gym_pybullet_drones.utils.Logger import Logger
 from gym_pybullet_drones.utils.utils import sync, str2bool
 
+
+def compute_transformation(phi, theta, psi):
+    R_BI = np.zeros((3, 3))
+    R_BI[0, 0] = np.cos(theta)*np.cos(psi)
+    R_BI[0, 1] = np.cos(theta)*np.sin(psi)
+    R_BI[0, 2] = -np.sin(theta)
+
+    R_BI[1, 0] = np.sin(theta)*np.cos(psi)*np.sin(phi) - np.sin(psi)*np.cos(phi)
+    R_BI[1, 1] = np.sin(theta)*np.sin(psi)*np.sin(phi) + np.cos(psi)*np.cos(phi)
+    R_BI[1, 2] = np.cos(theta)*np.sin(phi)
+
+    R_BI[2, 0] = np.sin(theta)*np.cos(psi)*np.cos(phi) + np.sin(psi)*np.sin(phi)
+    R_BI[2, 1] = np.sin(theta)*np.sin(psi)*np.cos(phi) - np.cos(psi)*np.sin(phi)
+    R_BI[2, 2] = np.cos(theta)*np.cos(phi)
+    return R_BI
+
 if __name__ == "__main__":
 
     #### Define and parse (optional) arguments for the script ##
@@ -51,15 +67,15 @@ if __name__ == "__main__":
     parser.add_argument('--obstacles',          default=True,       type=str2bool,      help='Whether to add obstacles to the environment (default: True)', metavar='')
     parser.add_argument('--simulation_freq_hz', default=10,        type=int,           help='Simulation frequency in Hz (default: 240)', metavar='')
     parser.add_argument('--control_freq_hz',    default=10,         type=int,           help='Control frequency in Hz (default: 48)', metavar='')
-    parser.add_argument('--duration_sec',       default=30,         type=int,           help='Duration of the simulation in seconds (default: 5)', metavar='')
+    parser.add_argument('--duration_sec',       default=20,         type=int,           help='Duration of the simulation in seconds (default: 5)', metavar='')
     ARGS = parser.parse_args()
 
     #### Initialize the simulation #############################
     H = .5
     H_STEP = .05
     R = .3
-    INIT_XYZS = np.array([[0.0, 0.3, H] for i in range(ARGS.num_drones)])
-    INIT_RPYS = np.array([[0, 0,  i * (np.pi/2)/ARGS.num_drones] for i in range(ARGS.num_drones)])
+    INIT_XYZS = np.array([[-R, 0, H] for i in range(ARGS.num_drones)])
+    INIT_RPYS = np.array([[0, 0, np.pi] for i in range(ARGS.num_drones)])
     AGGR_PHY_STEPS = int(ARGS.simulation_freq_hz/ARGS.control_freq_hz) if ARGS.aggregate else 1
 
     #### Initialize a circular trajectory ######################
@@ -72,8 +88,8 @@ if __name__ == "__main__":
     wp_counters = np.array([int((i * NUM_WP / 6) % NUM_WP) for i in range(ARGS.num_drones)])
     def init_traj(center_pos):
         for i in range(NUM_WP):
-            TARGET_POS[i, :] = R*np.cos((i/NUM_WP)*(2*np.pi)+np.pi/2) + center_pos[0], R*np.sin((i/NUM_WP)*(2*np.pi)+np.pi/2) + center_pos[1], 0
-            TARGET_RPY[i, :] = 0, 0, INIT_RPYS[0, 2] + 2*np.pi*i/NUM_WP
+            TARGET_POS[i, :] = R*np.cos((i/NUM_WP)*(2*np.pi)+np.pi) + center_pos[0], -R*np.sin((i/NUM_WP)*(2*np.pi)) + center_pos[1], 0
+            TARGET_RPY[i, :] = 0, 0, INIT_RPYS[0, 2] + np.arctan2(np.sin(2*np.pi*i/NUM_WP), np.cos(2*np.pi*i/NUM_WP))
             # TARGET_RPY_RATE[i, :] = 0, 0, 2*np.pi/PERIOD
         return TARGET_POS, TARGET_RPY
 
@@ -142,9 +158,9 @@ if __name__ == "__main__":
         ctrl = [ILQRControl(drone_model=ARGS.drone) for i in range(ARGS.num_drones)]
 
     ### Move target
-    move_freq = 0.5 * env.SIM_FREQ #seconds
+    move_freq = 5 * env.SIM_FREQ #seconds
     object = np.array([0, 0, 0.0])
-    move_direction = np.array([-0.01, 0.02, 0.0])
+    move_direction = np.array([-0.00, 0.00, 0.0])
     TARGET_POS, TARGET_RPY = init_traj(object)
     duck = p.loadURDF("duck_vhacd.urdf", object)
 
@@ -166,17 +182,23 @@ if __name__ == "__main__":
         obs, reward, done, info = env.step(action)
 
         #new_state = RK4Integrator(self.dynamics, 0.1)(x0, np.array([u1[0], u2[0], u3[0], u4[0]]), 0)
-
+        print("Step: {}".format(i))
         #### Compute control at the desired frequency ##############
         if i%CTRL_EVERY_N_STEPS == 0:
 
             #### Compute control for the current way point #############
             for j in range(ARGS.num_drones):
                 # print(INIT_XYZS[j, 2])
+                print("Target pos: " + str(np.hstack([TARGET_POS[wp_counters[j], 0:2], INIT_XYZS[j, 2]])))
+                print("Target rpy: " + str(TARGET_RPY[wp_counters[j], :]))
+                state = obs[str(j)]["state"]
+                R_BI = compute_transformation(*state[7:10])
+                state[10:13] = R_BI@state[10:13]  # transform planar velocities from world to body frame
+                state[13:16] = R_BI@state[13:16] # transform angular velocities from world to body frame
                 action[str(j)] = ctrl[j].computeControlFromState(control_timestep=CTRL_EVERY_N_STEPS*env.TIMESTEP,
-                                                                 state=obs[str(j)]["state"],
+                                                                 state=state,
                                                                  target_pos=np.hstack([TARGET_POS[wp_counters[j], 0:2], INIT_XYZS[j, 2]]),
-                                                                 target_rpy=INIT_RPYS[j, :],
+                                                                 target_rpy=TARGET_RPY[wp_counters[j], :],
                                                                  target_rpy_rates=[0, 0, 2*np.pi/PERIOD])
 
             #### Go to the next way point and loop #####################
