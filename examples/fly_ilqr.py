@@ -59,7 +59,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_drones',         default=1,          type=int,           help='Number of drones (default: 3)', metavar='')
     parser.add_argument('--physics',            default="pyb",      type=Physics,       help='Physics updates (default: PYB)', metavar='', choices=Physics)
     parser.add_argument('--vision',             default=False,      type=str2bool,      help='Whether to use VisionAviary (default: False)', metavar='')
-    parser.add_argument('--gui',                default=True,       type=str2bool,      help='Whether to use PyBullet GUI (default: True)', metavar='')
+    parser.add_argument('--gui',                default=False,       type=str2bool,      help='Whether to use PyBullet GUI (default: True)', metavar='')
     parser.add_argument('--record_video',       default=False,      type=str2bool,      help='Whether to record a video (default: False)', metavar='')
     parser.add_argument('--plot',               default=True,       type=str2bool,      help='Whether to plot the simulation results (default: True)', metavar='')
     parser.add_argument('--user_debug_gui',     default=False,      type=str2bool,      help='Whether to add debug lines and parameters to the GUI (default: False)', metavar='')
@@ -67,7 +67,7 @@ if __name__ == "__main__":
     parser.add_argument('--obstacles',          default=True,       type=str2bool,      help='Whether to add obstacles to the environment (default: True)', metavar='')
     parser.add_argument('--simulation_freq_hz', default=10,        type=int,           help='Simulation frequency in Hz (default: 240)', metavar='')
     parser.add_argument('--control_freq_hz',    default=10,         type=int,           help='Control frequency in Hz (default: 48)', metavar='')
-    parser.add_argument('--duration_sec',       default=20,         type=int,           help='Duration of the simulation in seconds (default: 5)', metavar='')
+    parser.add_argument('--duration_sec',       default=10,         type=int,           help='Duration of the simulation in seconds (default: 5)', metavar='')
     ARGS = parser.parse_args()
 
     #### Initialize the simulation #############################
@@ -154,13 +154,17 @@ if __name__ == "__main__":
     #### Initialize the controllers ############################
     if ARGS.drone in [DroneModel.CF2X, DroneModel.CF2P]:
         ctrl = [ILQRControl(drone_model=ARGS.drone, control_freq=ARGS.control_freq_hz) for i in range(ARGS.num_drones)]
+        #ctrl = [DSLPIDControl(drone_model=ARGS.drone) for i in range(ARGS.num_drones)]
+        #ctrl = [DSLPIDControl(drone_model=ARGS.drone) for i in range(ARGS.num_drones)]
     elif ARGS.drone in [DroneModel.HB]:
-        ctrl = [ILQRControl(drone_model=ARGS.drone) for i in range(ARGS.num_drones)]
+        raise RuntimeError
+        #ctrl = [ILQRControl(drone_model=ARGS.drone) for i in range(ARGS.num_drones)]
 
     ### Move target
-    move_freq = 5 * env.SIM_FREQ #seconds
+    move_freq = 0.1 * env.SIM_FREQ #seconds
+    print("Move freq (steps)=" + str(move_freq))
     object = np.array([0, 0, 0.0])
-    move_direction = np.array([-0.00, 0.00, 0.0])
+    move_direction = np.array([-0.01, 0.02, 0.0])
     TARGET_POS, TARGET_RPY = init_traj(object)
     duck = p.loadURDF("duck_vhacd.urdf", object)
 
@@ -171,7 +175,7 @@ if __name__ == "__main__":
     for i in range(0, int(ARGS.duration_sec*env.SIM_FREQ), AGGR_PHY_STEPS):
 
         if i % move_freq == 0:
-            object += move_direction
+            object += move_direction   # KRT: removed moving target for now.
             p.removeBody(duck)
             duck = p.loadURDF("duck_vhacd.urdf", object)
             TARGET_POS, TARGET_RPY = init_traj(object)
@@ -195,7 +199,7 @@ if __name__ == "__main__":
                 R_BI = compute_transformation(*state[7:10])
                 state[10:13] = R_BI@state[10:13]  # transform planar velocities from world to body frame
                 state[13:16] = R_BI@state[13:16] # transform angular velocities from world to body frame
-                action[str(j)] = ctrl[j].computeControlFromState(control_timestep=CTRL_EVERY_N_STEPS*env.TIMESTEP,
+                action[str(j)], _, _ = ctrl[j].computeControlFromState(control_timestep=CTRL_EVERY_N_STEPS*env.TIMESTEP,
                                                                  state=state,
                                                                  target_pos=np.hstack([TARGET_POS[wp_counters[j], 0:2], INIT_XYZS[j, 2]]),
                                                                  target_rpy=TARGET_RPY[wp_counters[j], :],
@@ -210,7 +214,8 @@ if __name__ == "__main__":
             logger.log(drone=j,
                        timestamp=i/env.SIM_FREQ,
                        state= obs[str(j)]["state"],
-                       control=np.hstack([TARGET_POS[wp_counters[j], 0:2], INIT_XYZS[j, 2], INIT_RPYS[j, :], np.zeros(6)])
+                       control=np.hstack([TARGET_POS[wp_counters[j]], np.zeros((3,)), TARGET_RPY[wp_counters[j]], [0, 0, 2*np.pi/PERIOD]])
+                       #control=np.hstack([TARGET_POS[wp_counters[j], 0:2], INIT_XYZS[j, 2], INIT_RPYS[j, :], np.zeros(6)])
                        # control=np.hstack([INIT_XYZS[j, :]+TARGET_POS[wp_counters[j], :], INIT_RPYS[j, :], np.zeros(6)])
                        )
 
@@ -234,7 +239,7 @@ if __name__ == "__main__":
 
     #### Save the simulation results ###########################
     logger.save()
-    logger.save_as_csv("pid") # Optional CSV save
+    logger.save_as_csv("ilqr") # Optional CSV save
 
     #### Plot the simulation results ###########################
     if ARGS.plot:

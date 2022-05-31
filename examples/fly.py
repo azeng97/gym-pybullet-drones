@@ -39,7 +39,7 @@ if __name__ == "__main__":
     #### Define and parse (optional) arguments for the script ##
     parser = argparse.ArgumentParser(description='Helix flight script using CtrlAviary or VisionAviary and DSLPIDControl')
     parser.add_argument('--drone',              default="cf2x",     type=DroneModel,    help='Drone model (default: CF2X)', metavar='', choices=DroneModel)
-    parser.add_argument('--num_drones',         default=3,          type=int,           help='Number of drones (default: 3)', metavar='')
+    parser.add_argument('--num_drones',         default=1,          type=int,           help='Number of drones (default: 3)', metavar='')
     parser.add_argument('--physics',            default="pyb",      type=Physics,       help='Physics updates (default: PYB)', metavar='', choices=Physics)
     parser.add_argument('--vision',             default=False,      type=str2bool,      help='Whether to use VisionAviary (default: False)', metavar='')
     parser.add_argument('--gui',                default=True,       type=str2bool,      help='Whether to use PyBullet GUI (default: True)', metavar='')
@@ -54,7 +54,7 @@ if __name__ == "__main__":
     ARGS = parser.parse_args()
 
     #### Initialize the simulation #############################
-    H = .1
+    H = .5
     H_STEP = .05
     R = .3
     INIT_XYZS = np.array([[R*np.cos((i/6)*2*np.pi+np.pi/2), R*np.sin((i/6)*2*np.pi+np.pi/2)-R, H+i*H_STEP] for i in range(ARGS.num_drones)])
@@ -62,7 +62,7 @@ if __name__ == "__main__":
     AGGR_PHY_STEPS = int(ARGS.simulation_freq_hz/ARGS.control_freq_hz) if ARGS.aggregate else 1
 
     #### Initialize a circular trajectory ######################
-    PERIOD = 10
+    PERIOD = 5
     NUM_WP = ARGS.control_freq_hz*PERIOD
     TARGET_POS = np.zeros((NUM_WP,3))
     TARGET_RPY = np.zeros((NUM_WP,3))
