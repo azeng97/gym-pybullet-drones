@@ -42,7 +42,7 @@ if __name__ == "__main__":
     parser.add_argument('--num_drones',         default=1,          type=int,           help='Number of drones (default: 3)', metavar='')
     parser.add_argument('--physics',            default="pyb",      type=Physics,       help='Physics updates (default: PYB)', metavar='', choices=Physics)
     parser.add_argument('--vision',             default=False,      type=str2bool,      help='Whether to use VisionAviary (default: False)', metavar='')
-    parser.add_argument('--gui',                default=False,       type=str2bool,      help='Whether to use PyBullet GUI (default: True)', metavar='')
+    parser.add_argument('--gui',                default=True,       type=str2bool,      help='Whether to use PyBullet GUI (default: True)', metavar='')
     parser.add_argument('--record_video',       default=False,      type=str2bool,      help='Whether to record a video (default: False)', metavar='')
     parser.add_argument('--plot',               default=True,       type=str2bool,      help='Whether to plot the simulation results (default: True)', metavar='')
     parser.add_argument('--user_debug_gui',     default=False,      type=str2bool,      help='Whether to add debug lines and parameters to the GUI (default: False)', metavar='')
@@ -58,7 +58,7 @@ if __name__ == "__main__":
     H_STEP = .05
     R = .3
     # INIT_XYZS = np.array([[R*np.cos((i/6)*2*np.pi+np.pi/2), R*np.sin((i/6)*2*np.pi+np.pi/2)-R, H+i*H_STEP] for i in range(ARGS.num_drones)])
-    INIT_XYZS = np.array([[-R, 0, H] for i in range(ARGS.num_drones)])
+    INIT_XYZS = np.array([[-1, 1, H] for i in range(ARGS.num_drones)])
     INIT_RPYS = np.array([[0, 0, np.pi] for i in range(ARGS.num_drones)])
     AGGR_PHY_STEPS = int(ARGS.simulation_freq_hz/ARGS.control_freq_hz) if ARGS.aggregate else 1
 
@@ -151,7 +151,7 @@ if __name__ == "__main__":
     move_freq = .1*env.SIM_FREQ*10/4.8/2 #seconds
     print("Move freq (steps)="+str(move_freq))
     object = np.array([0, 0, 0.0])
-    move_direction = np.array([-0.01, 0.02, 0.0])
+    move_direction = np.array([-0.04, 0.02, 0.0])
     TARGET_POS, TARGET_RPY = init_traj(object)
 
     duck = p.loadURDF("duck_vhacd.urdf", object)

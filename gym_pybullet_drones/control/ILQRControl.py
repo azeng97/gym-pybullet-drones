@@ -509,7 +509,7 @@ class ILQRControl(BaseControl):
         if target_rpy[2] - cur_rpy[2] > np.pi:
             target_rpy[2] -= 2*np.pi
         elif target_rpy[2] - cur_rpy[2] < -np.pi:
-            target_rpy[2] -= 2*np.pi
+            target_rpy[2] += 2*np.pi
 
 
         print("After: {}".format(target_rpy[2]))
