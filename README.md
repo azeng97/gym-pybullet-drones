@@ -1,3 +1,10 @@
+# Code for AA203 Project - Drone Reconnaissance Planning and Control using iLQR
+
+To run, follow setup instructions from gym-pybullet-drones repo.
+
+Then run `python3 examples/fly_ilqr.py`
+
+
 # NOTE
 This repository's `master` branch is actively developed, please `git pull` frequently and feel free to open new [issues](https://github.com/utiasDSL/gym-pybullet-drones/issues) for any undesired, unexpected, or (presumably) incorrect behavior. Thanks 🙏
 
